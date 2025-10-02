@@ -13,8 +13,11 @@ A beautiful, modern web-based interface for analyzing LiveU device logs with int
 
 ### 📊 **Interactive Visualizations**
 - **Modem Statistics**: Bar charts and line graphs showing bandwidth, packet loss, and delay metrics
-- **Bandwidth Analysis**: Time-series charts for stream, modem, and data bridge bandwidth
-- **Session Tracking**: Detailed session tables with filtering and status indicators
+- **Modem Bandwidth Analysis**: Per-modem bandwidth and RTT charts with aggregated totals
+- **Stream Bandwidth Analysis**: Time-series charts for stream and data bridge bandwidth
+- **Session Tracking**: Complete/incomplete session detection with duration calculation, chronological sorting, and filtering
+- **Memory Usage Analysis**: Component-based time-series charts (VIC, Corecard, Server) with warning detection and detailed stats
+- **Modem Grading Visualization**: Service level transitions timeline, quality metrics tracking, per-modem health monitoring
 - **Real-time Charts**: Dynamic graphs using Recharts library
 
 ### 🎨 **Beautiful UI**
@@ -95,13 +98,13 @@ A beautiful, modern web-based interface for analyzing LiveU device logs with int
 | `v` | Verbose (includes common errors) | Raw output |
 | `all` | All log lines | Raw output |
 | `bw` | Stream bandwidth | Time-series charts |
-| `md-bw` | Modem bandwidth | Time-series charts |
+| `md-bw` | Modem bandwidth | Per-modem bandwidth/RTT + aggregated total |
 | `md-db-bw` | Data bridge bandwidth | Time-series charts |
 | `md` | Modem statistics | Bar/Line charts + tables |
-| `sessions` | Session summaries | Table with filtering |
+| `sessions` | Session summaries | Stats cards + chronologically sorted table with complete/incomplete sessions, start/end times, durations |
 | `id` | Device/server IDs | Raw output |
-| `memory` | Memory usage | Raw output |
-| `grading` | Modem service levels | Raw output |
+| `memory` | Memory usage | Interactive time-series charts per component (VIC/Corecard/Server), stats cards, detailed table |
+| `grading` | Modem service levels | Service level timeline, quality metrics charts, per-modem stats cards, event history table |
 | `cpu` | CPU usage | Raw output |
 | `modemevents` | Modem connectivity events | Raw output |
 | `modemeventssorted` | Connectivity by modem | Raw output |
@@ -114,6 +117,9 @@ The results interface has three tabs:
 1. **📊 Visualization**: Interactive charts and graphs
    - Summary statistics cards
    - Dynamic charts (bar, line, area)
+   - Per-modem analysis with bandwidth and RTT metrics (md-bw mode)
+   - Aggregated bandwidth totals
+   - Session tables with chronological sorting and filtering by type
    - Detailed data tables
 
 2. **📝 Raw Output**: Full text output
@@ -122,6 +128,116 @@ The results interface has three tabs:
    - Copy to clipboard
 
 3. **⚠️ Errors**: Error messages (if any)
+
+### Sessions Parser Details
+
+The `sessions` parse mode provides comprehensive session tracking:
+
+**Visualization Features:**
+- **Summary Cards**: Total sessions, complete sessions count, incomplete sessions count
+- **Session Types**:
+  - `Complete`: Sessions with both start and end timestamps
+  - `Start Only`: Sessions that began but have no recorded end
+  - `End Only`: Sessions with an end timestamp but no recorded start
+- **Filtering**: Filter table by All Sessions, Complete Only, Start Only, or End Only
+- **Chronological Sorting**: Sessions sorted by timestamp (not session ID)
+- **Duration Calculation**: Automatic duration calculation for complete sessions
+
+**Data Displayed:**
+- Session ID
+- Session type (color-coded badge)
+- Start timestamp
+- End timestamp
+- Duration (for complete sessions)
+
+**Known Limitations:**
+- Session metadata extraction (server info, network config, timing metrics, active modems) is currently disabled due to performance constraints with large compressed archives
+- Future optimization planned to enable detailed metadata visualization
+
+### Memory Parser Details
+
+The `memory` parse mode provides comprehensive memory usage analysis with interactive visualizations:
+
+**Visualization Features:**
+- **Component-Based Analysis**: Separate tracking for VIC, Corecard, and Server components
+- **Summary Cards**:
+  - Average, max, and min memory usage percentages
+  - Peak memory usage in MB
+  - Warning count per component
+  - Total data points collected
+- **Interactive Time-Series Chart**:
+  - Line chart showing memory usage over time
+  - Filter by component (click cards to toggle)
+  - Warning threshold line at 80%
+  - Color-coded by component
+- **Detailed Data Table**:
+  - Timestamp, component, usage %, used MB, total MB, cached MB
+  - Warning indicators (highlighted rows)
+  - First 100 data points displayed
+  - Filterable by selected component
+
+**Data Displayed:**
+- Memory usage percentage (always available)
+- Used memory (MB) - when available in detailed logs
+- Total memory (MB) - when available in detailed logs
+- Cached memory (MB) - when available in detailed logs
+- Warning status
+- Timestamp for each measurement
+
+**Supported Components:**
+- **VIC**: Video Input Card memory monitoring
+- **Corecard**: Corecard component memory monitoring
+- **Server**: Server-side memory monitoring
+
+**Supported Log Formats:**
+- Simple percentage: `COR: 7.8%` or `VIC: 25.7%`
+- Detailed format: `25.7% (531 MB out of 2069 MB), cached - 145 MB`
+- Warning format: `Memory usage is too high: 95.7%`
+
+### Modem Grading Parser Details
+
+The `grading` parse mode provides modem service level monitoring with interactive visualizations:
+
+**Visualization Features:**
+- **Per-Modem Summary Cards**:
+  - Current service level (Full/Limited)
+  - Service change counts
+  - Quality metric counts (good/bad)
+  - Color-coded borders (green for Full, red for Limited)
+  - Click to filter timeline/charts
+- **Service Level Timeline Chart**:
+  - Step chart showing service transitions over time
+  - Visual representation of Full Service (1) vs Limited Service (0)
+  - Interactive tooltips with timestamps
+  - Filterable by modem
+- **Quality Metrics Bar Chart**:
+  - Two metrics displayed as bars
+  - Color-coded by quality status (green=good, red=bad)
+  - First 50 measurements shown
+  - Filterable by modem
+- **Service Change Events Table**:
+  - Chronological list of service level changes
+  - Highlighted rows for Limited Service events
+  - Timestamps and modem IDs
+  - First 100 events displayed
+
+**Data Displayed:**
+- Service level transitions (Full ↔ Limited)
+- Quality metrics (numeric values with status)
+- Event timestamps
+- Per-modem statistics
+
+**Event Types:**
+- **Service Change**: Modem transitions between Full and Limited service
+- **Quality Metric**: Numeric quality measurements with threshold evaluation
+
+**Typical Log Pattern:**
+```
+ModemID 0 Full Service
+ModemID 0 126 86 Good enough for full service
+ModemID 0 539 490 Not good enough for full service
+ModemID 0 Limited Service
+```
 
 ## 🏗️ Architecture
 
@@ -188,6 +304,7 @@ ngl/
             ├── Results.js
             ├── ModemStats.js
             ├── BandwidthChart.js
+            ├── ModemBandwidthChart.js
             ├── SessionsTable.js
             └── RawOutput.js
 ```
@@ -345,6 +462,7 @@ Contributions welcome! Areas for improvement:
 - Log history/database storage
 - Advanced filtering options
 - Export to PDF/Excel
+- Session metadata extraction optimization (server info, network config, timing metrics, active modems)
 
 ## 📧 Support
 

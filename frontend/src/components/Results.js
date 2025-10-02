@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import ModemStats from './ModemStats';
 import BandwidthChart from './BandwidthChart';
+import ModemBandwidthChart from './ModemBandwidthChart';
 import SessionsTable from './SessionsTable';
+import MemoryChart from './MemoryChart';
+import ModemGradingChart from './ModemGradingChart';
 import RawOutput from './RawOutput';
 
 function Results({ data }) {
@@ -10,10 +13,16 @@ function Results({ data }) {
   const renderVisualization = () => {
     if (data.parse_mode === 'md' && data.parsed_data) {
       return <ModemStats modems={data.parsed_data} />;
-    } else if (['bw', 'md-bw', 'md-db-bw'].includes(data.parse_mode) && data.parsed_data) {
+    } else if (data.parse_mode === 'md-bw' && data.parsed_data) {
+      return <ModemBandwidthChart data={data.parsed_data} />;
+    } else if (['bw', 'md-db-bw'].includes(data.parse_mode) && data.parsed_data) {
       return <BandwidthChart data={data.parsed_data} mode={data.parse_mode} />;
     } else if (data.parse_mode === 'sessions' && data.parsed_data) {
       return <SessionsTable sessions={data.parsed_data} />;
+    } else if (data.parse_mode === 'memory' && data.parsed_data) {
+      return <MemoryChart data={data.parsed_data} />;
+    } else if (data.parse_mode === 'grading' && data.parsed_data) {
+      return <ModemGradingChart data={data.parsed_data} />;
     } else {
       return (
         <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>

@@ -67,36 +67,38 @@ function SessionsTable({ sessions }) {
           </thead>
           <tbody>
             {filteredSessions.map((session, idx) => (
-              <tr key={idx}>
-                <td>{idx + 1}</td>
-                <td>
-                  <span
-                    style={{
-                      display: 'inline-block',
-                      padding: '4px 12px',
-                      borderRadius: '12px',
-                      fontSize: '0.85rem',
-                      fontWeight: '600',
-                      background:
-                        session.type === 'complete' ? '#d3f9d8' :
-                        session.type === 'start_only' ? '#fff3bf' :
-                        '#ffe3e3',
-                      color:
-                        session.type === 'complete' ? '#2f9e44' :
-                        session.type === 'start_only' ? '#f08c00' :
-                        '#c92a2a',
-                    }}
-                  >
-                    {session.type === 'complete' ? 'Complete' :
-                     session.type === 'start_only' ? 'Start Only' :
-                     'End Only'}
-                  </span>
-                </td>
-                <td>{session.session_id || 'N/A'}</td>
-                <td style={{ fontSize: '0.9rem' }}>{session.start || '-'}</td>
-                <td style={{ fontSize: '0.9rem' }}>{session.end || '-'}</td>
-                <td style={{ fontWeight: '600' }}>{session.duration || '-'}</td>
-              </tr>
+              <React.Fragment key={idx}>
+                <tr>
+                  <td>{idx + 1}</td>
+                  <td>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        padding: '4px 12px',
+                        borderRadius: '12px',
+                        fontSize: '0.85rem',
+                        fontWeight: '600',
+                        background:
+                          session.type === 'complete' ? '#d3f9d8' :
+                          session.type === 'start_only' ? '#fff3bf' :
+                          '#ffe3e3',
+                        color:
+                          session.type === 'complete' ? '#2f9e44' :
+                          session.type === 'start_only' ? '#f08c00' :
+                          '#c92a2a',
+                      }}
+                    >
+                      {session.type === 'complete' ? 'Complete' :
+                       session.type === 'start_only' ? 'Start Only' :
+                       'End Only'}
+                    </span>
+                  </td>
+                  <td>{session.session_id || 'N/A'}</td>
+                  <td style={{ fontSize: '0.9rem' }}>{session.start || '-'}</td>
+                  <td style={{ fontSize: '0.9rem' }}>{session.end || '-'}</td>
+                  <td style={{ fontWeight: '600' }}>{session.duration || '-'}</td>
+                </tr>
+              </React.Fragment>
             ))}
           </tbody>
         </table>

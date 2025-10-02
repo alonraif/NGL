@@ -13,7 +13,13 @@ import {
 } from 'recharts';
 
 function BandwidthChart({ data, mode }) {
-  if (!data || data.length === 0) {
+  // Check if data is valid array
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return <div>No bandwidth data available</div>;
+  }
+
+  // Check if first element exists
+  if (!data[0]) {
     return <div>No bandwidth data available</div>;
   }
 
