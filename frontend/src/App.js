@@ -103,7 +103,7 @@ function App() {
       <div className="container">
         <header className="header">
           <h1>NGL - Next Gen LULA</h1>
-          <p>Next Generation LiveU Log Analyzer with beautiful visualizations</p>
+          <p>Next Generation LiveU Log Analyzer</p>
         </header>
 
         <div className="card">
