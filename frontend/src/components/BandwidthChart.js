@@ -1,7 +1,5 @@
 import React from 'react';
 import {
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -30,7 +28,7 @@ function BandwidthChart({ data, mode }) {
     return !isNaN(parseFloat(value)) && isFinite(value);
   });
 
-  const colors = ['#667eea', '#764ba2', '#82ca9d', '#ff6b6b', '#ffd93d', '#6bcf7f'];
+  const colors = ['#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2'];
 
   // Calculate summary statistics
   const stats = numericColumns.map((col, idx) => {
@@ -80,11 +78,12 @@ function BandwidthChart({ data, mode }) {
               angle={-45}
               textAnchor="end"
               height={100}
-              interval="preserveStartEnd"
+              interval={Math.floor(data.length / 10) || 1}
+              tick={{ fontSize: 11 }}
             />
-            <YAxis />
+            <YAxis label={{ value: 'Bandwidth (Kbps)', angle: -90, position: 'insideLeft' }} />
             <Tooltip />
-            <Legend />
+            <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
             {numericColumns.map((col, idx) => (
               <Area
                 key={col}
@@ -97,35 +96,6 @@ function BandwidthChart({ data, mode }) {
               />
             ))}
           </AreaChart>
-        </ResponsiveContainer>
-      </div>
-
-      <h3 style={{ marginTop: '30px', marginBottom: '15px' }}>Line Chart View</h3>
-      <div className="chart-container" style={{ height: '500px' }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis
-              dataKey={headers[0]}
-              angle={-45}
-              textAnchor="end"
-              height={100}
-              interval="preserveStartEnd"
-            />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            {numericColumns.map((col, idx) => (
-              <Line
-                key={col}
-                type="monotone"
-                dataKey={col}
-                stroke={colors[idx % colors.length]}
-                strokeWidth={2}
-                dot={false}
-              />
-            ))}
-          </LineChart>
         </ResponsiveContainer>
       </div>
 

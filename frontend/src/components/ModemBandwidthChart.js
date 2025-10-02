@@ -18,13 +18,13 @@ function ModemBandwidthChart({ data }) {
   }
 
   const modemIds = Object.keys(data.modems).sort((a, b) => parseInt(a) - parseInt(b));
-  const colors = ['#667eea', '#764ba2', '#82ca9d', '#ff6b6b', '#ffd93d', '#6bcf7f', '#4ecdc4', '#ff9ff3'];
+  const colors = ['#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#ea580c', '#be123c'];
 
   return (
     <div>
       {/* Aggregated Total Bandwidth Chart */}
       <h3 style={{ marginBottom: '15px', fontSize: '1.3rem' }}>
-        📊 Total Bandwidth (All Modems Aggregated)
+        Total Bandwidth (All Modems Aggregated)
       </h3>
       <div className="chart-container" style={{ height: '400px', marginBottom: '40px' }}>
         <ResponsiveContainer width="100%" height="100%">
@@ -35,18 +35,19 @@ function ModemBandwidthChart({ data }) {
               angle={-45}
               textAnchor="end"
               height={100}
-              interval="preserveStartEnd"
+              interval={Math.floor(data.aggregated.length / 10) || 1}
+              tick={{ fontSize: 11 }}
             />
             <YAxis label={{ value: 'Bandwidth (Kbps)', angle: -90, position: 'insideLeft' }} />
             <Tooltip />
-            <Legend />
+            <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
             <Area
               type="monotone"
               dataKey="total_bw"
               name="Total Bandwidth"
-              stroke="#667eea"
-              fill="#667eea"
-              fillOpacity={0.6}
+              stroke="#2563eb"
+              fill="#2563eb"
+              fillOpacity={0.3}
               strokeWidth={2}
             />
           </AreaChart>
@@ -55,7 +56,7 @@ function ModemBandwidthChart({ data }) {
 
       {/* Per-Modem Charts */}
       <h3 style={{ marginBottom: '20px', fontSize: '1.3rem' }}>
-        📡 Per-Modem Analysis
+        Per-Modem Analysis
       </h3>
 
       {modemIds.map((modemId, idx) => {
@@ -67,7 +68,7 @@ function ModemBandwidthChart({ data }) {
             <h4 style={{
               marginBottom: '20px',
               padding: '10px 15px',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: '#2563eb',
               color: 'white',
               borderRadius: '8px',
               fontSize: '1.1rem'
@@ -93,12 +94,12 @@ function ModemBandwidthChart({ data }) {
                         angle={-45}
                         textAnchor="end"
                         height={80}
-                        interval="preserveStartEnd"
-                        style={{ fontSize: '0.8rem' }}
+                        interval={Math.floor(modemData.length / 8) || 1}
+                        tick={{ fontSize: 10 }}
                       />
                       <YAxis label={{ value: 'Kbps', angle: -90, position: 'insideLeft' }} />
                       <Tooltip />
-                      <Legend wrapperStyle={{ fontSize: '0.85rem' }} />
+                      <Legend verticalAlign="top" align="right" wrapperStyle={{ fontSize: '0.85rem', paddingBottom: '8px' }} />
                       <Area
                         type="monotone"
                         dataKey="potential_bw"
@@ -133,17 +134,17 @@ function ModemBandwidthChart({ data }) {
                         angle={-45}
                         textAnchor="end"
                         height={80}
-                        interval="preserveStartEnd"
-                        style={{ fontSize: '0.8rem' }}
+                        interval={Math.floor(modemData.length / 8) || 1}
+                        tick={{ fontSize: 10 }}
                       />
                       <YAxis label={{ value: 'ms', angle: -90, position: 'insideLeft' }} />
                       <Tooltip />
-                      <Legend wrapperStyle={{ fontSize: '0.85rem' }} />
+                      <Legend verticalAlign="top" align="right" wrapperStyle={{ fontSize: '0.85rem', paddingBottom: '8px' }} />
                       <Line
                         type="monotone"
                         dataKey="shortest_rtt"
                         name="Shortest RTT"
-                        stroke="#82ca9d"
+                        stroke="#059669"
                         strokeWidth={2}
                         dot={false}
                       />
@@ -151,7 +152,7 @@ function ModemBandwidthChart({ data }) {
                         type="monotone"
                         dataKey="smooth_rtt"
                         name="Smooth RTT"
-                        stroke="#ffd93d"
+                        stroke="#d97706"
                         strokeWidth={2}
                         dot={false}
                       />
@@ -159,7 +160,7 @@ function ModemBandwidthChart({ data }) {
                         type="monotone"
                         dataKey="min_rtt"
                         name="Min RTT"
-                        stroke="#4ecdc4"
+                        stroke="#0891b2"
                         strokeWidth={2}
                         dot={false}
                       />
@@ -199,11 +200,11 @@ function ModemBandwidthChart({ data }) {
       <div style={{
         marginTop: '30px',
         padding: '15px',
-        background: '#e3f2fd',
-        borderLeft: '4px solid #667eea',
+        background: '#eff6ff',
+        borderLeft: '4px solid #2563eb',
         borderRadius: '4px'
       }}>
-        <strong>💡 Tip:</strong> Check the "Raw Output" tab for detailed CSV data
+        <strong>Tip:</strong> Check the "Raw Output" tab for detailed CSV data
       </div>
     </div>
   );

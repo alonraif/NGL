@@ -50,20 +50,20 @@ function Results({ data }) {
             className={`tab ${activeTab === 'visualization' ? 'active' : ''}`}
             onClick={() => setActiveTab('visualization')}
           >
-            📊 Visualization
+            Visualization
           </button>
           <button
             className={`tab ${activeTab === 'raw' ? 'active' : ''}`}
             onClick={() => setActiveTab('raw')}
           >
-            📝 Raw Output
+            Raw Output
           </button>
           {data.error && (
             <button
               className={`tab ${activeTab === 'errors' ? 'active' : ''}`}
               onClick={() => setActiveTab('errors')}
             >
-              ⚠️ Errors
+              Errors
             </button>
           )}
         </div>

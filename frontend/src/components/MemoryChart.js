@@ -90,10 +90,10 @@ const MemoryChart = ({ data }) => {
   }, [chartData, selectedComponent]);
 
   const componentColors = {
-    'VIC': '#8884d8',
-    'Corecard': '#82ca9d',
-    'Server': '#ffc658',
-    'Unknown': '#999999'
+    'VIC': '#2563eb',
+    'Corecard': '#059669',
+    'Server': '#d97706',
+    'Unknown': '#6b7280'
   };
 
   if (!data || data.length === 0) {
@@ -162,7 +162,7 @@ const MemoryChart = ({ data }) => {
                     fontSize: '12px',
                     fontWeight: 'bold'
                   }}>
-                    {stat.warnings} ⚠️
+                    {stat.warnings} warnings
                   </span>
                 )}
               </div>
@@ -227,10 +227,11 @@ const MemoryChart = ({ data }) => {
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis
               dataKey="timestamp"
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: 11 }}
               angle={-45}
               textAnchor="end"
-              height={80}
+              height={100}
+              interval={Math.floor(filteredData.length / 10) || 1}
             />
             <YAxis
               label={{ value: 'Memory Usage (%)', angle: -90, position: 'insideLeft' }}
@@ -244,7 +245,7 @@ const MemoryChart = ({ data }) => {
                 padding: '10px'
               }}
             />
-            <Legend />
+            <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
 
             {/* Warning threshold line */}
             <ReferenceLine
@@ -345,7 +346,7 @@ const MemoryChart = ({ data }) => {
                         WARNING
                       </span>
                     ) : (
-                      <span style={{ color: '#28a745', fontWeight: 'bold' }}>✓</span>
+                      <span style={{ color: '#28a745', fontWeight: 'bold' }}>OK</span>
                     )}
                   </td>
                 </tr>

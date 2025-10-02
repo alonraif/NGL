@@ -126,7 +126,7 @@ const ModemGradingChart = ({ data }) => {
               background: 'white',
               padding: '20px',
               borderRadius: '12px',
-              border: `3px solid ${stat.current_service === 'Full' ? '#28a745' : '#dc3545'}`,
+              border: `3px solid ${stat.current_service === 'Full' ? '#059669' : '#dc2626'}`,
               boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
               cursor: 'pointer',
               transition: 'all 0.2s',
@@ -147,7 +147,7 @@ const ModemGradingChart = ({ data }) => {
                 Modem {stat.modem_id}
               </h3>
               <span style={{
-                background: stat.current_service === 'Full' ? '#28a745' : '#dc3545',
+                background: stat.current_service === 'Full' ? '#059669' : '#dc2626',
                 color: 'white',
                 padding: '4px 10px',
                 borderRadius: '12px',
@@ -215,10 +215,11 @@ const ModemGradingChart = ({ data }) => {
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis
               dataKey="timestamp"
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: 11 }}
               angle={-45}
               textAnchor="end"
-              height={80}
+              height={100}
+              interval={Math.floor(filteredTimeline.length / 10) || 1}
             />
             <YAxis
               domain={[0, 1]}
@@ -245,13 +246,13 @@ const ModemGradingChart = ({ data }) => {
                 return null;
               }}
             />
-            <Legend />
+            <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
             <Line
               type="stepAfter"
               dataKey="service_value"
-              stroke="#1976d2"
+              stroke="#2563eb"
               strokeWidth={3}
-              dot={{ r: 5, fill: '#1976d2' }}
+              dot={{ r: 5, fill: '#2563eb' }}
               name="Service Level"
             />
           </LineChart>
@@ -274,10 +275,11 @@ const ModemGradingChart = ({ data }) => {
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis
               dataKey="timestamp"
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: 11 }}
               angle={-45}
               textAnchor="end"
-              height={80}
+              height={100}
+              interval={Math.floor(filteredQuality.slice(0, 50).length / 8) || 1}
             />
             <YAxis />
             <Tooltip
@@ -294,7 +296,7 @@ const ModemGradingChart = ({ data }) => {
                       <div><strong>Modem:</strong> {data.modem_id}</div>
                       <div><strong>Metric 1:</strong> {data.metric1}</div>
                       <div><strong>Metric 2:</strong> {data.metric2}</div>
-                      <div><strong>Status:</strong> {data.is_good ? '✓ Good' : '✗ Bad'}</div>
+                      <div><strong>Status:</strong> {data.is_good ? 'Good' : 'Bad'}</div>
                       <div><strong>Time:</strong> {data.timestamp}</div>
                     </div>
                   );
@@ -302,13 +304,13 @@ const ModemGradingChart = ({ data }) => {
                 return null;
               }}
             />
-            <Legend />
+            <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
             <Bar dataKey="metric1" name="Metric 1">
               {filteredQuality.slice(0, 50).map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.is_good ? '#28a745' : '#dc3545'} />
+                <Cell key={`cell-${index}`} fill={entry.is_good ? '#059669' : '#dc2626'} />
               ))}
             </Bar>
-            <Bar dataKey="metric2" fill="#82ca9d" name="Metric 2" />
+            <Bar dataKey="metric2" fill="#d97706" name="Metric 2" />
           </BarChart>
         </ResponsiveContainer>
         {filteredQuality.length > 50 && (
@@ -361,7 +363,7 @@ const ModemGradingChart = ({ data }) => {
                     </td>
                     <td style={{ padding: '10px', textAlign: 'center' }}>
                       <span style={{
-                        background: event.service_level === 'Full' ? '#28a745' : '#dc3545',
+                        background: event.service_level === 'Full' ? '#059669' : '#dc2626',
                         color: 'white',
                         padding: '4px 12px',
                         borderRadius: '12px',
