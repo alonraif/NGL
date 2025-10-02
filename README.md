@@ -1,6 +1,6 @@
-# 🎥 LiveU Log Analyzer - Web UI
+# 🎥 NGL - Next Gen LULA
 
-A beautiful, modern web-based interface for analyzing LiveU device logs with interactive visualizations and real-time data insights.
+**Next Generation LiveU Log Analyzer** - A beautiful, modern web-based interface for analyzing LiveU device logs with interactive visualizations and real-time data insights.
 
 ![Version](https://img.shields.io/badge/Version-3.0.0-brightgreen)
 ![Docker](https://img.shields.io/badge/Docker-Enabled-blue)

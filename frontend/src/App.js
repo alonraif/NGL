@@ -80,8 +80,8 @@ function App() {
     <div className="App">
       <div className="container">
         <header className="header">
-          <h1>🎥 LiveU Log Analyzer</h1>
-          <p>Analyze LiveU device logs with beautiful visualizations</p>
+          <h1>🎥 NGL - Next Gen LULA</h1>
+          <p>Next Generation LiveU Log Analyzer with beautiful visualizations</p>
         </header>
 
         <div className="card">

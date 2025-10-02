@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+NGL - Next Gen LULA Backend
 Modular backend using new parser architecture
 No dependency on lula2.py
 """

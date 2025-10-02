@@ -1,6 +1,7 @@
 {
-  "name": "lula-web-ui",
+  "name": "ngl-next-gen-lula",
   "version": "1.0.0",
+  "description": "NGL - Next Generation LiveU Log Analyzer",
   "private": true,
   "dependencies": {
     "react": "^18.2.0",
