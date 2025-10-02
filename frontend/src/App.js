@@ -3,19 +3,23 @@ import axios from 'axios';
 import './App.css';
 import FileUpload from './components/FileUpload';
 import Results from './components/Results';
+import ParserProgress from './components/ParserProgress';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
 function App() {
   const [parseModes, setParseModes] = useState([]);
-  const [selectedMode, setSelectedMode] = useState('known');
+  const [selectedModes, setSelectedModes] = useState([]);
   const [timezone, setTimezone] = useState('US/Eastern');
   const [beginDate, setBeginDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState(null);
+  const [results, setResults] = useState([]);
   const [error, setError] = useState(null);
+  const [parserQueue, setParserQueue] = useState([]);
+  const [currentParser, setCurrentParser] = useState(null);
+  const [completedCount, setCompletedCount] = useState(0);
 
   useEffect(() => {
     // Fetch available parse modes
@@ -33,6 +37,16 @@ function App() {
     setError(null);
   };
 
+  const handleParserToggle = (modeValue) => {
+    setSelectedModes(prev => {
+      if (prev.includes(modeValue)) {
+        return prev.filter(m => m !== modeValue);
+      } else {
+        return [...prev, modeValue];
+      }
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -41,38 +55,100 @@ function App() {
       return;
     }
 
+    if (selectedModes.length === 0) {
+      setError('Please select at least one parser');
+      return;
+    }
+
     setLoading(true);
     setError(null);
-    setResults(null);
+    setResults([]);
+    setCompletedCount(0);
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('parse_mode', selectedMode);
-    formData.append('timezone', timezone);
+    // Initialize parser queue
+    const queue = selectedModes.map(mode => {
+      const parserInfo = parseModes.find(p => p.value === mode);
+      return {
+        mode: mode,
+        label: parserInfo?.label || mode,
+        status: 'pending',
+        time: 0,
+        error: null
+      };
+    });
+    setParserQueue(queue);
 
-    // Format dates to 'YYYY-MM-DD HH:MM:SS'
-    if (beginDate) {
-      const formatted = formatDateTime(beginDate);
-      formData.append('begin_date', formatted);
-    }
-    if (endDate) {
-      const formatted = formatDateTime(endDate);
-      formData.append('end_date', formatted);
-    }
+    // Process parsers sequentially
+    const allResults = [];
+    for (let i = 0; i < selectedModes.length; i++) {
+      const mode = selectedModes[i];
+      const parserInfo = parseModes.find(p => p.value === mode);
 
-    try {
-      const response = await axios.post('/api/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+      // Update current parser
+      setCurrentParser({
+        mode: mode,
+        label: parserInfo?.label || mode,
+        startTime: Date.now()
       });
 
-      setResults(response.data);
-    } catch (err) {
-      setError(err.response?.data?.error || 'An error occurred while processing the file');
-    } finally {
-      setLoading(false);
+      // Update queue status to running
+      setParserQueue(prev => prev.map((p, idx) =>
+        idx === i ? { ...p, status: 'running' } : p
+      ));
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('parse_mode', mode);
+        formData.append('timezone', timezone);
+
+        if (beginDate) {
+          formData.append('begin_date', formatDateTime(beginDate));
+        }
+        if (endDate) {
+          formData.append('end_date', formatDateTime(endDate));
+        }
+
+        const startTime = Date.now();
+        const response = await axios.post('/api/upload', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+        const processingTime = (Date.now() - startTime) / 1000;
+
+        // Update queue status to completed
+        setParserQueue(prev => prev.map((p, idx) =>
+          idx === i ? { ...p, status: 'completed', time: processingTime } : p
+        ));
+
+        allResults.push(response.data);
+        setResults(allResults);
+        setCompletedCount(i + 1);
+
+      } catch (err) {
+        const processingTime = (Date.now() - Date.now()) / 1000;
+        const errorMsg = err.response?.data?.error || 'An error occurred while processing';
+
+        // Update queue status to failed
+        setParserQueue(prev => prev.map((p, idx) =>
+          idx === i ? { ...p, status: 'failed', time: processingTime, error: errorMsg } : p
+        ));
+
+        // Add error result
+        allResults.push({
+          parse_mode: mode,
+          filename: file.name,
+          error: errorMsg,
+          success: false
+        });
+        setResults(allResults);
+        setCompletedCount(i + 1);
+      }
     }
+
+    setCurrentParser(null);
+    setLoading(false);
   };
 
   // Helper function to format date to 'YYYY-MM-DD HH:MM:SS'
@@ -129,20 +205,24 @@ function App() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="parse-mode">Parse Mode</label>
-              <select
-                id="parse-mode"
-                value={selectedMode}
-                onChange={(e) => setSelectedMode(e.target.value)}
-              >
+              <label htmlFor="parse-modes">Parse Modes (Select Multiple)</label>
+              <div className="parser-checkboxes">
                 {parseModes.map(mode => (
-                  <option key={mode.value} value={mode.value}>
-                    {mode.label}
-                  </option>
+                  <label key={mode.value} className="parser-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={selectedModes.includes(mode.value)}
+                      onChange={() => handleParserToggle(mode.value)}
+                    />
+                    <div className="checkbox-content">
+                      <span className="checkbox-label">{mode.label}</span>
+                      <span className="checkbox-description">{mode.description}</span>
+                    </div>
+                  </label>
                 ))}
-              </select>
+              </div>
               <small>
-                {parseModes.find(m => m.value === selectedMode)?.description}
+                {selectedModes.length} parser{selectedModes.length !== 1 ? 's' : ''} selected
               </small>
             </div>
 
@@ -194,7 +274,7 @@ function App() {
               </div>
             </div>
 
-            <button type="submit" className="btn btn-primary" disabled={loading || !file}>
+            <button type="submit" className="btn btn-primary" disabled={loading || !file || selectedModes.length === 0}>
               {loading ? 'Processing...' : 'Analyze Log'}
             </button>
           </form>
@@ -206,16 +286,16 @@ function App() {
           )}
         </div>
 
-        {loading && (
-          <div className="card">
-            <div className="loading">
-              <div className="spinner"></div>
-              <p>Processing your log file... This may take a few minutes.</p>
-            </div>
-          </div>
+        {loading && parserQueue.length > 0 && (
+          <ParserProgress
+            parserQueue={parserQueue}
+            currentParser={currentParser}
+            completedCount={completedCount}
+            totalCount={selectedModes.length}
+          />
         )}
 
-        {results && <Results data={results} />}
+        {results.length > 0 && <Results results={results} />}
       </div>
     </div>
   );
