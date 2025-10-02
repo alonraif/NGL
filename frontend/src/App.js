@@ -3,13 +3,15 @@ import axios from 'axios';
 import './App.css';
 import FileUpload from './components/FileUpload';
 import Results from './components/Results';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
 function App() {
   const [parseModes, setParseModes] = useState([]);
   const [selectedMode, setSelectedMode] = useState('known');
   const [timezone, setTimezone] = useState('US/Eastern');
-  const [beginDate, setBeginDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [beginDate, setBeginDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
@@ -47,8 +49,16 @@ function App() {
     formData.append('file', file);
     formData.append('parse_mode', selectedMode);
     formData.append('timezone', timezone);
-    if (beginDate) formData.append('begin_date', beginDate);
-    if (endDate) formData.append('end_date', endDate);
+
+    // Format dates to 'YYYY-MM-DD HH:MM:SS'
+    if (beginDate) {
+      const formatted = formatDateTime(beginDate);
+      formData.append('begin_date', formatted);
+    }
+    if (endDate) {
+      const formatted = formatDateTime(endDate);
+      formData.append('end_date', formatted);
+    }
 
     try {
       const response = await axios.post('/api/upload', formData, {
@@ -63,6 +73,18 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper function to format date to 'YYYY-MM-DD HH:MM:SS'
+  const formatDateTime = (date) => {
+    if (!date) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
   };
 
   const timezones = [
@@ -131,26 +153,35 @@ function App() {
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="begin-date">Begin Date (Optional)</label>
-                <input
-                  type="text"
-                  id="begin-date"
-                  placeholder="e.g., 2024-01-01 12:00:00"
-                  value={beginDate}
-                  onChange={(e) => setBeginDate(e.target.value)}
+                <DatePicker
+                  selected={beginDate}
+                  onChange={(date) => setBeginDate(date)}
+                  showTimeSelect
+                  timeFormat="HH:mm"
+                  timeIntervals={15}
+                  dateFormat="yyyy-MM-dd HH:mm:ss"
+                  placeholderText="Select start date and time"
+                  isClearable
+                  className="date-picker-input"
                 />
-                <small>Format: YYYY-MM-DD HH:MM:SS</small>
+                <small>Select date and time for filtering</small>
               </div>
 
               <div className="form-group">
                 <label htmlFor="end-date">End Date (Optional)</label>
-                <input
-                  type="text"
-                  id="end-date"
-                  placeholder="e.g., 2024-01-01 18:00:00"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                <DatePicker
+                  selected={endDate}
+                  onChange={(date) => setEndDate(date)}
+                  showTimeSelect
+                  timeFormat="HH:mm"
+                  timeIntervals={15}
+                  dateFormat="yyyy-MM-dd HH:mm:ss"
+                  placeholderText="Select end date and time"
+                  isClearable
+                  minDate={beginDate}
+                  className="date-picker-input"
                 />
-                <small>Format: YYYY-MM-DD HH:MM:SS</small>
+                <small>Select date and time for filtering</small>
               </div>
             </div>
 
