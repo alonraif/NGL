@@ -15,24 +15,36 @@
   margin: 0 -20px 32px -20px;
 }
 
+.header-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.header-logo {
+  height: 60px;
+  width: auto;
+  object-fit: contain;
+}
+
+.header-text {
+  flex: 1;
+}
+
 .header h1 {
   font-size: 24px;
   font-weight: 600;
   margin-bottom: 4px;
   color: #1f2937;
-  max-width: 1400px;
-  margin-left: auto;
-  margin-right: auto;
-  padding: 0 20px;
 }
 
 .header p {
   font-size: 14px;
   color: #6b7280;
-  max-width: 1400px;
-  margin-left: auto;
-  margin-right: auto;
-  padding: 0 20px;
+  margin: 0;
 }
 
 .card {

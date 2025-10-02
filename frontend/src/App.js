@@ -102,8 +102,17 @@ function App() {
     <div className="App">
       <div className="container">
         <header className="header">
-          <h1>NGL - Next Gen LULA</h1>
-          <p>Next Generation LiveU Log Analyzer</p>
+          <div className="header-content">
+            <img
+              src="https://cdn-liveutv.pressidium.com/wp-content/uploads/2024/01/Live-and-Ulimted-Light-Background-V2.png"
+              alt="LiveU Logo"
+              className="header-logo"
+            />
+            <div className="header-text">
+              <h1>NGL - Next Gen LULA</h1>
+              <p>Next Generation LiveU Log Analyzer</p>
+            </div>
+          </div>
         </header>
 
         <div className="card">
