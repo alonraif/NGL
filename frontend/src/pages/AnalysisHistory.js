@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useParsing } from '../context/ParsingContext';
 import axios from 'axios';
 import Results from '../components/Results';
 import '../App.css';
@@ -8,15 +9,27 @@ import '../App.css';
 const AnalysisHistory = () => {
   const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const { getActiveJob, isParsingActive } = useParsing();
   const [analyses, setAnalyses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedAnalysis, setSelectedAnalysis] = useState(null);
   const [viewingResult, setViewingResult] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const activeJob = getActiveJob();
+
   useEffect(() => {
     fetchAnalyses();
-  }, []);
+
+    // Poll for updates if there's an active parsing job
+    const pollInterval = setInterval(() => {
+      if (isParsingActive()) {
+        fetchAnalyses();
+      }
+    }, 5000); // Poll every 5 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [isParsingActive]);
 
   const fetchAnalyses = async () => {
     try {
@@ -177,6 +190,37 @@ const AnalysisHistory = () => {
             </button>
           </div>
         </header>
+
+        {isParsingActive() && activeJob && (
+          <div className="parsing-banner">
+            <div className="parsing-banner-content">
+              <div className="parsing-banner-header">
+                <span className="parsing-indicator"></span>
+                <h3>Parsing in Progress</h3>
+              </div>
+              <p>
+                <strong>{activeJob.sessionName}</strong>
+                {activeJob.zendeskCase && <> - Case: {activeJob.zendeskCase}</>}
+              </p>
+              <p style={{ margin: '4px 0', fontSize: '13px', opacity: 0.9 }}>
+                📁 {activeJob.filename}
+              </p>
+              <p className="parsing-banner-status">
+                ⚙️ {activeJob.completedCount} of {activeJob.parsers.length} parsers completed
+                {activeJob.parserQueue && activeJob.currentParserIndex !== undefined && activeJob.parserQueue[activeJob.currentParserIndex] && (
+                  <> - Currently: <strong>{activeJob.parserQueue[activeJob.currentParserIndex].label}</strong></>
+                )}
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/')}
+              className="btn btn-secondary"
+              style={{ marginLeft: 'auto' }}
+            >
+              View Details
+            </button>
+          </div>
+        )}
 
         <div className="card">
           <div style={{ marginBottom: '24px' }}>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useParsing } from '../context/ParsingContext';
 import '../App.css';
 import FileUpload from '../components/FileUpload';
 import Results from '../components/Results';
@@ -12,6 +13,15 @@ import 'react-datepicker/dist/react-datepicker.css';
 function UploadPage() {
   const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const {
+    startParsing,
+    updateParserStatus,
+    addParserResult,
+    completeJob,
+    clearJob,
+    getActiveJob
+  } = useParsing();
+
   const [parseModes, setParseModes] = useState([]);
   const [selectedModes, setSelectedModes] = useState([]);
   const [sessionName, setSessionName] = useState('');
@@ -20,12 +30,56 @@ function UploadPage() {
   const [beginDate, setBeginDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
   const [file, setFile] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState([]);
   const [error, setError] = useState(null);
-  const [parserQueue, setParserQueue] = useState([]);
-  const [currentParser, setCurrentParser] = useState(null);
-  const [completedCount, setCompletedCount] = useState(0);
+
+  // Get active job from context
+  const activeJob = getActiveJob();
+  const loading = activeJob?.status === 'running';
+  const isCompleted = activeJob?.status === 'completed';
+  const results = activeJob?.results || [];
+  const parserQueue = activeJob?.parserQueue || [];
+  const currentParserIndex = activeJob?.currentParserIndex;
+  const currentParser = currentParserIndex !== undefined && parserQueue[currentParserIndex]
+    ? {
+        ...parserQueue[currentParserIndex],
+        startTime: parserQueue[currentParserIndex].startTime || Date.now() // Fallback for restored state
+      }
+    : null;
+  const completedCount = activeJob?.completedCount || 0;
+
+  // Poll for completed analyses when we have a running job after page refresh
+  useEffect(() => {
+    if (!activeJob || activeJob.status !== 'running') return;
+
+    // If we have a running job but no results yet (likely after refresh), poll for updates
+    const shouldPoll = activeJob.results.length === 0 && activeJob.completedCount === 0;
+
+    if (!shouldPoll) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await axios.get('/api/analyses');
+        const analyses = response.data.analyses;
+
+        // Check if any recent analyses match our job's session
+        const recentAnalyses = analyses.filter(a =>
+          a.session_name === activeJob.sessionName &&
+          a.status === 'completed' &&
+          new Date(a.created_at).getTime() > activeJob.startTime
+        );
+
+        if (recentAnalyses.length > 0) {
+          console.log('[UploadPage] Found completed analyses, job likely finished on backend');
+          // Job completed on backend, mark as completed
+          completeJob(activeJob.id);
+        }
+      } catch (error) {
+        console.error('[UploadPage] Error polling for analyses:', error);
+      }
+    }, 5000); // Poll every 5 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [activeJob, completeJob]);
 
   useEffect(() => {
     // Fetch available parse modes
@@ -71,41 +125,33 @@ function UploadPage() {
       return;
     }
 
-    setLoading(true);
     setError(null);
-    setResults([]);
-    setCompletedCount(0);
 
-    // Initialize parser queue
-    const queue = selectedModes.map(mode => {
+    // Create unique job ID
+    const jobId = `job_${Date.now()}`;
+
+    // Initialize parsing job in context
+    const parsers = selectedModes.map(mode => {
       const parserInfo = parseModes.find(p => p.value === mode);
       return {
         mode: mode,
-        label: parserInfo?.label || mode,
-        status: 'pending',
-        time: 0,
-        error: null
+        label: parserInfo?.label || mode
       };
     });
-    setParserQueue(queue);
+
+    startParsing(jobId, {
+      sessionName,
+      zendeskCase,
+      filename: file.name,
+      parsers
+    });
 
     // Process parsers sequentially
-    const allResults = [];
     for (let i = 0; i < selectedModes.length; i++) {
       const mode = selectedModes[i];
-      const parserInfo = parseModes.find(p => p.value === mode);
 
-      // Update current parser
-      setCurrentParser({
-        mode: mode,
-        label: parserInfo?.label || mode,
-        startTime: Date.now()
-      });
-
-      // Update queue status to running
-      setParserQueue(prev => prev.map((p, idx) =>
-        idx === i ? { ...p, status: 'running' } : p
-      ));
+      // Update parser status to running
+      updateParserStatus(jobId, i, 'running');
 
       try {
         const formData = new FormData();
@@ -132,38 +178,34 @@ function UploadPage() {
         });
         const processingTime = (Date.now() - startTime) / 1000;
 
-        // Update queue status to completed
-        setParserQueue(prev => prev.map((p, idx) =>
-          idx === i ? { ...p, status: 'completed', time: processingTime } : p
-        ));
+        // Update parser status to completed
+        updateParserStatus(jobId, i, 'completed', { time: processingTime });
 
-        allResults.push(response.data);
-        setResults(allResults);
-        setCompletedCount(i + 1);
+        // Add result
+        addParserResult(jobId, response.data);
 
       } catch (err) {
         const processingTime = (Date.now() - Date.now()) / 1000;
         const errorMsg = err.response?.data?.error || 'An error occurred while processing';
 
-        // Update queue status to failed
-        setParserQueue(prev => prev.map((p, idx) =>
-          idx === i ? { ...p, status: 'failed', time: processingTime, error: errorMsg } : p
-        ));
+        // Update parser status to failed
+        updateParserStatus(jobId, i, 'failed', {
+          time: processingTime,
+          error: errorMsg
+        });
 
         // Add error result
-        allResults.push({
+        addParserResult(jobId, {
           parse_mode: mode,
           filename: file.name,
           error: errorMsg,
           success: false
         });
-        setResults(allResults);
-        setCompletedCount(i + 1);
       }
     }
 
-    setCurrentParser(null);
-    setLoading(false);
+    // Complete the job
+    completeJob(jobId);
   };
 
   // Helper function to format date to 'YYYY-MM-DD HH:MM:SS'
@@ -225,6 +267,36 @@ function UploadPage() {
             </button>
           </div>
         </header>
+
+        {(loading || isCompleted) && activeJob && (
+          <div className="card" style={{
+            marginBottom: '24px',
+            background: isCompleted ? '#f0fdf4' : '#eff6ff',
+            border: isCompleted ? '1px solid #22c55e' : '1px solid #3b82f6'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ marginTop: 0, color: isCompleted ? '#15803d' : '#1e40af' }}>
+                  {isCompleted ? '✅ Parsing Complete' : '📊 Parsing Job'}
+                </h3>
+                <p style={{ color: isCompleted ? '#166534' : '#1e3a8a', margin: '8px 0' }}>
+                  <strong>Session:</strong> {activeJob.sessionName}
+                  {activeJob.zendeskCase && <> | <strong>Case:</strong> {activeJob.zendeskCase}</>}
+                </p>
+                <p style={{ color: isCompleted ? '#166534' : '#1e3a8a', margin: '4px 0' }}>
+                  <strong>File:</strong> {activeJob.filename}
+                </p>
+              </div>
+              <button
+                onClick={() => clearJob(activeJob.id)}
+                className="btn btn-secondary"
+                style={{ marginLeft: '20px' }}
+              >
+                {isCompleted ? 'Clear' : 'Cancel'}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="card">
           <form onSubmit={handleSubmit}>
@@ -350,12 +422,12 @@ function UploadPage() {
           )}
         </div>
 
-        {loading && parserQueue.length > 0 && (
+        {loading && parserQueue.length > 0 && currentParser && (
           <ParserProgress
             parserQueue={parserQueue}
             currentParser={currentParser}
             completedCount={completedCount}
-            totalCount={selectedModes.length}
+            totalCount={activeJob.parsers.length}
           />
         )}
 
