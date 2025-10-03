@@ -132,6 +132,8 @@ class Analysis(Base):
 
     # Analysis metadata
     parse_mode = Column(String(50), nullable=False, index=True)
+    session_name = Column(String(255), nullable=False, index=True)  # User-friendly name for identification
+    zendesk_case = Column(String(100), index=True)  # Optional Zendesk ticket reference
     timezone = Column(String(50))
     begin_date = Column(String(50))
     end_date = Column(String(50))

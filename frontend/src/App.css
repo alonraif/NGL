@@ -922,3 +922,10 @@ code {
   font-family: monospace;
   font-size: 13px;
 }
+
+/* Required field indicator */
+.required {
+  color: #dc2626;
+  margin-left: 4px;
+  font-weight: bold;
+}

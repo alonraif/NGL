@@ -12,6 +12,7 @@ const AnalysisHistory = () => {
   const [loading, setLoading] = useState(true);
   const [selectedAnalysis, setSelectedAnalysis] = useState(null);
   const [viewingResult, setViewingResult] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     fetchAnalyses();
@@ -26,6 +27,32 @@ const AnalysisHistory = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) {
+      fetchAnalyses();
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const response = await axios.get('/api/analyses/search', {
+        params: { q: searchQuery }
+      });
+      setAnalyses(response.data.analyses);
+    } catch (error) {
+      console.error('Failed to search analyses:', error);
+      alert('Failed to search analyses');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    fetchAnalyses();
   };
 
   const viewAnalysis = async (analysisId) => {
@@ -88,6 +115,10 @@ const AnalysisHistory = () => {
           <div className="card">
             <h2>Analysis Details</h2>
             <div className="analysis-details">
+              <p><strong>Session Name:</strong> {selectedAnalysis.analysis.session_name}</p>
+              {selectedAnalysis.analysis.zendesk_case && (
+                <p><strong>Zendesk Case:</strong> {selectedAnalysis.analysis.zendesk_case}</p>
+              )}
               <p><strong>File:</strong> {selectedAnalysis.analysis.filename}</p>
               <p><strong>Parser:</strong> {selectedAnalysis.analysis.parse_mode}</p>
               <p><strong>Status:</strong> {getStatusBadge(selectedAnalysis.analysis.status)}</p>
@@ -148,14 +179,54 @@ const AnalysisHistory = () => {
         </header>
 
         <div className="card">
-          <h2>Your Analyses</h2>
+          <div style={{ marginBottom: '24px' }}>
+            <h2>Your Analyses</h2>
+            <form onSubmit={handleSearch} style={{ marginTop: '16px' }}>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by session name or Zendesk case..."
+                  style={{
+                    flex: 1,
+                    padding: '10px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                  }}
+                />
+                <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>
+                  Search
+                </button>
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={clearSearch}
+                    className="btn btn-secondary"
+                    style={{ width: 'auto' }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+
           {analyses.length === 0 ? (
-            <p className="empty-message">No analyses found. Upload a file to get started!</p>
+            <p className="empty-message">
+              {searchQuery
+                ? `No analyses found matching "${searchQuery}"`
+                : 'No analyses found. Upload a file to get started!'
+              }
+            </p>
           ) : (
             <div className="analysis-list">
               <table className="analysis-table">
                 <thead>
                   <tr>
+                    <th>Session Name</th>
+                    <th>Zendesk Case</th>
                     <th>File</th>
                     <th>Parser</th>
                     <th>Status</th>
@@ -167,6 +238,8 @@ const AnalysisHistory = () => {
                 <tbody>
                   {analyses.map(analysis => (
                     <tr key={analysis.id}>
+                      <td><strong>{analysis.session_name}</strong></td>
+                      <td>{analysis.zendesk_case || '-'}</td>
                       <td>{analysis.filename}</td>
                       <td>{analysis.parse_mode}</td>
                       <td>{getStatusBadge(analysis.status)}</td>

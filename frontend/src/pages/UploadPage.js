@@ -14,6 +14,8 @@ function UploadPage() {
   const navigate = useNavigate();
   const [parseModes, setParseModes] = useState([]);
   const [selectedModes, setSelectedModes] = useState([]);
+  const [sessionName, setSessionName] = useState('');
+  const [zendeskCase, setZendeskCase] = useState('');
   const [timezone, setTimezone] = useState('US/Eastern');
   const [beginDate, setBeginDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
@@ -56,6 +58,11 @@ function UploadPage() {
 
     if (!file) {
       setError('Please select a file to upload');
+      return;
+    }
+
+    if (!sessionName.trim()) {
+      setError('Please enter a session name');
       return;
     }
 
@@ -104,6 +111,10 @@ function UploadPage() {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('parse_mode', mode);
+        formData.append('session_name', sessionName);
+        if (zendeskCase.trim()) {
+          formData.append('zendesk_case', zendeskCase);
+        }
         formData.append('timezone', timezone);
 
         if (beginDate) {
@@ -226,6 +237,35 @@ function UploadPage() {
                   <p><strong>Size:</strong> {(file.size / 1024 / 1024).toFixed(2)} MB</p>
                 </div>
               )}
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="session-name">
+                Session Name <span className="required">*</span>
+              </label>
+              <input
+                type="text"
+                id="session-name"
+                value={sessionName}
+                onChange={(e) => setSessionName(e.target.value)}
+                placeholder="e.g., Lakers game - main camera"
+                required
+                maxLength={255}
+              />
+              <small>Enter a descriptive name to identify this analysis session</small>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="zendesk-case">Zendesk Case (Optional)</label>
+              <input
+                type="text"
+                id="zendesk-case"
+                value={zendeskCase}
+                onChange={(e) => setZendeskCase(e.target.value)}
+                placeholder="e.g., #12345"
+                maxLength={100}
+              />
+              <small>Optional ticket reference for tracking</small>
             </div>
 
             <div className="form-group">

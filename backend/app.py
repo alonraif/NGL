@@ -129,9 +129,15 @@ def upload_file(current_user, db):
 
         # Get parameters
         parse_mode = request.form.get('parse_mode', 'known')
+        session_name = request.form.get('session_name', '').strip()
+        zendesk_case = request.form.get('zendesk_case', '').strip()
         timezone = request.form.get('timezone', 'US/Eastern')
         begin_date = request.form.get('begin_date', '')
         end_date = request.form.get('end_date', '')
+
+        # Validate required fields
+        if not session_name:
+            return jsonify({'error': 'Session name is required'}), 400
 
         # Check storage quota
         file.seek(0, 2)  # Seek to end
@@ -173,6 +179,8 @@ def upload_file(current_user, db):
             log_file_id=log_file.id,
             parser_id=parser_obj.id if parser_obj else None,
             parse_mode=parse_mode,
+            session_name=session_name,
+            zendesk_case=zendesk_case if zendesk_case else None,
             timezone=timezone,
             begin_date=begin_date,
             end_date=end_date,
@@ -284,6 +292,8 @@ def get_analyses(current_user, db):
             'analyses': [{
                 'id': a.id,
                 'parse_mode': a.parse_mode,
+                'session_name': a.session_name,
+                'zendesk_case': a.zendesk_case,
                 'filename': a.log_file.original_filename if a.log_file else None,
                 'status': a.status,
                 'created_at': a.created_at.isoformat(),
@@ -318,6 +328,8 @@ def get_analysis(analysis_id, current_user, db):
             'analysis': {
                 'id': analysis.id,
                 'parse_mode': analysis.parse_mode,
+                'session_name': analysis.session_name,
+                'zendesk_case': analysis.zendesk_case,
                 'filename': analysis.log_file.original_filename if analysis.log_file else None,
                 'status': analysis.status,
                 'created_at': analysis.created_at.isoformat(),
@@ -333,6 +345,43 @@ def get_analysis(analysis_id, current_user, db):
 
     except Exception as e:
         return jsonify({'error': f'Failed to get analysis: {str(e)}'}), 500
+
+
+@app.route('/api/analyses/search', methods=['GET'])
+@token_required
+def search_analyses(current_user, db):
+    """Search analyses by session name or Zendesk case"""
+    try:
+        search_query = request.args.get('q', '').strip()
+
+        if not search_query:
+            return jsonify({'analyses': []}), 200
+
+        # Search by session_name or zendesk_case (case-insensitive partial match)
+        analyses = db.query(Analysis).filter(
+            Analysis.user_id == current_user.id,
+            Analysis.is_deleted == False,
+            (Analysis.session_name.ilike(f'%{search_query}%') |
+             Analysis.zendesk_case.ilike(f'%{search_query}%'))
+        ).order_by(Analysis.created_at.desc()).all()
+
+        return jsonify({
+            'analyses': [{
+                'id': a.id,
+                'parse_mode': a.parse_mode,
+                'session_name': a.session_name,
+                'zendesk_case': a.zendesk_case,
+                'filename': a.log_file.original_filename if a.log_file else None,
+                'status': a.status,
+                'created_at': a.created_at.isoformat(),
+                'completed_at': a.completed_at.isoformat() if a.completed_at else None,
+                'processing_time_seconds': a.processing_time_seconds,
+                'error_message': a.error_message
+            } for a in analyses]
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to search analyses: {str(e)}'}), 500
 
 
 def init_parsers_in_db():
