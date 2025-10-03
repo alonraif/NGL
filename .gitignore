@@ -46,5 +46,9 @@ backend/temp/*
 !backend/uploads/.gitkeep
 !backend/temp/.gitkeep
 
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
 # Logs
 *.tar.bz2
