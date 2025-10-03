@@ -32,71 +32,10 @@ def validate_password(password):
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
-    """Register a new user"""
-    db = SessionLocal()
-    try:
-        data = request.get_json()
-
-        # Validate input
-        username = data.get('username', '').strip()
-        email = data.get('email', '').strip().lower()
-        password = data.get('password', '')
-
-        if not username or not email or not password:
-            return jsonify({'error': 'Username, email, and password are required'}), 400
-
-        if len(username) < 3:
-            return jsonify({'error': 'Username must be at least 3 characters long'}), 400
-
-        if not validate_email(email):
-            return jsonify({'error': 'Invalid email format'}), 400
-
-        valid_password, password_error = validate_password(password)
-        if not valid_password:
-            return jsonify({'error': password_error}), 400
-
-        # Check if user already exists
-        existing_user = db.query(User).filter(
-            (User.username == username) | (User.email == email)
-        ).first()
-
-        if existing_user:
-            if existing_user.username == username:
-                return jsonify({'error': 'Username already exists'}), 409
-            else:
-                return jsonify({'error': 'Email already exists'}), 409
-
-        # Create new user
-        user = User(
-            username=username,
-            email=email,
-            role='user'  # Default role
-        )
-        user.set_password(password)
-
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-
-        # Log registration
-        log_audit(db, user.id, 'register', 'user', user.id, {'username': username, 'email': email})
-
-        return jsonify({
-            'success': True,
-            'message': 'User registered successfully',
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'email': user.email,
-                'role': user.role
-            }
-        }), 201
-
-    except Exception as e:
-        db.rollback()
-        return jsonify({'error': f'Registration failed: {str(e)}'}), 500
-    finally:
-        db.close()
+    """Public registration disabled - only admins can create users"""
+    return jsonify({
+        'error': 'Public registration is disabled. Please contact an administrator to create an account.'
+    }), 403
 
 
 @auth_bp.route('/login', methods=['POST'])

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import './Auth.css';
 
@@ -74,7 +74,7 @@ const Login = () => {
           </button>
 
           <div className="auth-footer">
-            Don't have an account? <Link to="/register">Register</Link>
+            Need an account? Contact your administrator
           </div>
         </form>
       </div>

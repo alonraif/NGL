@@ -8,8 +8,28 @@ from models import User, Parser, ParserPermission, LogFile, Analysis, DeletionLo
 from auth import admin_required, log_audit
 from datetime import datetime
 import os
+import re
 
 admin_bp = Blueprint('admin', __name__)
+
+
+def validate_email(email):
+    """Validate email format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+
+def validate_password(password):
+    """Validate password strength"""
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long"
+    if not re.search(r'[A-Z]', password):
+        return False, "Password must contain at least one uppercase letter"
+    if not re.search(r'[a-z]', password):
+        return False, "Password must contain at least one lowercase letter"
+    if not re.search(r'[0-9]', password):
+        return False, "Password must contain at least one number"
+    return True, None
 
 
 @admin_bp.route('/users', methods=['GET'])
@@ -35,6 +55,85 @@ def list_users(current_user, db):
 
     except Exception as e:
         return jsonify({'error': f'Failed to list users: {str(e)}'}), 500
+
+
+@admin_bp.route('/users', methods=['POST'])
+@admin_required
+def create_user(current_user, db):
+    """Create a new user (admin only)"""
+    try:
+        data = request.get_json()
+
+        # Validate input
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+        role = data.get('role', 'user')  # Default role
+        storage_quota_mb = data.get('storage_quota_mb', 500)  # Default 500MB
+
+        if not username or not email or not password:
+            return jsonify({'error': 'Username, email, and password are required'}), 400
+
+        if len(username) < 3:
+            return jsonify({'error': 'Username must be at least 3 characters long'}), 400
+
+        if not validate_email(email):
+            return jsonify({'error': 'Invalid email format'}), 400
+
+        valid_password, password_error = validate_password(password)
+        if not valid_password:
+            return jsonify({'error': password_error}), 400
+
+        if role not in ['user', 'admin']:
+            return jsonify({'error': 'Invalid role. Must be "user" or "admin"'}), 400
+
+        # Check if user already exists
+        existing_user = db.query(User).filter(
+            (User.username == username) | (User.email == email)
+        ).first()
+
+        if existing_user:
+            if existing_user.username == username:
+                return jsonify({'error': 'Username already exists'}), 409
+            else:
+                return jsonify({'error': 'Email already exists'}), 409
+
+        # Create new user
+        user = User(
+            username=username,
+            email=email,
+            role=role,
+            storage_quota_mb=storage_quota_mb
+        )
+        user.set_password(password)
+
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        # Log user creation
+        log_audit(db, current_user.id, 'create_user', 'user', user.id, {
+            'username': username,
+            'email': email,
+            'role': role,
+            'created_by': current_user.username
+        })
+
+        return jsonify({
+            'success': True,
+            'message': 'User created successfully',
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'role': user.role,
+                'storage_quota_mb': user.storage_quota_mb
+            }
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': f'Failed to create user: {str(e)}'}), 500
 
 
 @admin_bp.route('/users/<int:user_id>', methods=['PUT'])
@@ -76,6 +175,46 @@ def update_user(user_id, current_user, db):
     except Exception as e:
         db.rollback()
         return jsonify({'error': f'Failed to update user: {str(e)}'}), 500
+
+
+@admin_bp.route('/users/<int:user_id>/reset-password', methods=['POST'])
+@admin_required
+def reset_user_password(user_id, current_user, db):
+    """Reset user password (admin only)"""
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        data = request.get_json()
+        new_password = data.get('new_password', '')
+
+        if not new_password:
+            return jsonify({'error': 'New password is required'}), 400
+
+        # Validate new password
+        valid_password, password_error = validate_password(new_password)
+        if not valid_password:
+            return jsonify({'error': password_error}), 400
+
+        # Update password
+        user.set_password(new_password)
+        db.commit()
+
+        # Log password reset
+        log_audit(db, current_user.id, 'reset_user_password', 'user', user_id, {
+            'target_user': user.username,
+            'reset_by': current_user.username
+        })
+
+        return jsonify({
+            'success': True,
+            'message': f'Password reset successfully for user {user.username}'
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': f'Failed to reset password: {str(e)}'}), 500
 
 
 @admin_bp.route('/users/<int:user_id>', methods=['DELETE'])

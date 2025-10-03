@@ -12,6 +12,16 @@ const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
   const [parsers, setParsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [newUser, setNewUser] = useState({
+    username: '',
+    email: '',
+    password: '',
+    role: 'user',
+    storage_quota_mb: 500
+  });
 
   useEffect(() => {
     fetchStats();
@@ -84,6 +94,56 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Failed to update user:', error);
       alert('Failed to make user admin');
+    }
+  };
+
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post('/api/admin/users', newUser);
+      alert('User created successfully');
+      setShowCreateUser(false);
+      setNewUser({
+        username: '',
+        email: '',
+        password: '',
+        role: 'user',
+        storage_quota_mb: 500
+      });
+      fetchUsers();
+    } catch (error) {
+      console.error('Failed to create user:', error);
+      alert(error.response?.data?.error || 'Failed to create user');
+    }
+  };
+
+  const handleDeleteUser = async (userId, username) => {
+    if (!window.confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await axios.delete(`/api/admin/users/${userId}`);
+      alert('User deleted successfully');
+      fetchUsers();
+    } catch (error) {
+      console.error('Failed to delete user:', error);
+      alert(error.response?.data?.error || 'Failed to delete user');
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    const password = e.target.new_password.value;
+    try {
+      await axios.post(`/api/admin/users/${selectedUser.id}/reset-password`, {
+        new_password: password
+      });
+      alert(`Password reset successfully for ${selectedUser.username}`);
+      setShowResetPassword(false);
+      setSelectedUser(null);
+    } catch (error) {
+      console.error('Failed to reset password:', error);
+      alert(error.response?.data?.error || 'Failed to reset password');
     }
   };
 
@@ -171,7 +231,117 @@ const AdminDashboard = () => {
 
           {activeTab === 'users' && (
             <div className="admin-content">
-              <h2>User Management</h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h2>User Management</h2>
+                <button
+                  onClick={() => setShowCreateUser(true)}
+                  className="btn btn-primary"
+                >
+                  + Create User
+                </button>
+              </div>
+
+              {showCreateUser && (
+                <div className="card" style={{ marginBottom: '20px', background: '#f9fafb' }}>
+                  <h3>Create New User</h3>
+                  <form onSubmit={handleCreateUser}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                      <div className="form-group">
+                        <label>Username *</label>
+                        <input
+                          type="text"
+                          value={newUser.username}
+                          onChange={(e) => setNewUser({...newUser, username: e.target.value})}
+                          required
+                          minLength={3}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Email *</label>
+                        <input
+                          type="email"
+                          value={newUser.email}
+                          onChange={(e) => setNewUser({...newUser, email: e.target.value})}
+                          required
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Password *</label>
+                        <input
+                          type="password"
+                          value={newUser.password}
+                          onChange={(e) => setNewUser({...newUser, password: e.target.value})}
+                          required
+                          minLength={8}
+                        />
+                        <small>Min 8 characters, 1 uppercase, 1 lowercase, 1 number</small>
+                      </div>
+                      <div className="form-group">
+                        <label>Role</label>
+                        <select
+                          value={newUser.role}
+                          onChange={(e) => setNewUser({...newUser, role: e.target.value})}
+                        >
+                          <option value="user">User</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>Storage Quota (MB)</label>
+                        <input
+                          type="number"
+                          value={newUser.storage_quota_mb}
+                          onChange={(e) => setNewUser({...newUser, storage_quota_mb: parseInt(e.target.value)})}
+                          min={100}
+                          max={10000}
+                        />
+                      </div>
+                    </div>
+                    <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
+                      <button type="submit" className="btn btn-primary">Create User</button>
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateUser(false)}
+                        className="btn btn-secondary"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {showResetPassword && selectedUser && (
+                <div className="card" style={{ marginBottom: '20px', background: '#fef3c7' }}>
+                  <h3>Reset Password for {selectedUser.username}</h3>
+                  <form onSubmit={handleResetPassword}>
+                    <div className="form-group">
+                      <label>New Password *</label>
+                      <input
+                        type="password"
+                        name="new_password"
+                        required
+                        minLength={8}
+                      />
+                      <small>Min 8 characters, 1 uppercase, 1 lowercase, 1 number</small>
+                    </div>
+                    <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
+                      <button type="submit" className="btn btn-primary">Reset Password</button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowResetPassword(false);
+                          setSelectedUser(null);
+                        }}
+                        className="btn btn-secondary"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
               <table className="analysis-table">
                 <thead>
                   <tr>
@@ -213,6 +383,24 @@ const AdminDashboard = () => {
                               className="btn btn-small"
                             >
                               Make Admin
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              setSelectedUser(u);
+                              setShowResetPassword(true);
+                            }}
+                            className="btn btn-small"
+                          >
+                            Reset Password
+                          </button>
+                          {u.id !== user.id && (
+                            <button
+                              onClick={() => handleDeleteUser(u.id, u.username)}
+                              className="btn btn-small"
+                              style={{ background: '#dc2626', color: 'white' }}
+                            >
+                              Delete
                             </button>
                           )}
                         </div>

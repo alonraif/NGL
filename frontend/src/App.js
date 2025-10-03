@@ -2,7 +2,6 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
-import Register from './pages/Register';
 import UploadPage from './pages/UploadPage';
 import AnalysisHistory from './pages/AnalysisHistory';
 import AdminDashboard from './pages/AdminDashboard';
@@ -63,10 +62,6 @@ function App() {
         element={user ? <Navigate to="/" replace /> : <Login />}
       />
       <Route
-        path="/register"
-        element={user ? <Navigate to="/" replace /> : <Register />}
-      />
-      <Route
         path="/"
         element={
           <ProtectedRoute>
@@ -89,6 +84,11 @@ function App() {
             <AdminDashboard />
           </AdminRoute>
         }
+      />
+      {/* Catch all - redirect to login or home */}
+      <Route
+        path="*"
+        element={<Navigate to={user ? "/" : "/login"} replace />}
       />
     </Routes>
   );
