@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 
 const ParserProgress = ({ parserQueue, currentParser, completedCount, totalCount }) => {
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [liveEstimate, setLiveEstimate] = useState(null);
 
   // Update elapsed time for current parser every second
   useEffect(() => {
@@ -15,24 +16,62 @@ const ParserProgress = ({ parserQueue, currentParser, completedCount, totalCount
     return () => clearInterval(interval);
   }, [currentParser]);
 
-  // Calculate realistic time estimate based on completed parsers
-  const calculateEstimate = () => {
+  // Update live estimate countdown every second
+  useEffect(() => {
+    if (liveEstimate === null || liveEstimate <= 0) return;
+
+    const interval = setInterval(() => {
+      setLiveEstimate(prev => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [liveEstimate]);
+
+  // Calculate raw estimate in seconds
+  const calculateRawEstimate = () => {
+    const remainingCount = totalCount - completedCount;
+
     if (completedCount === 0) {
-      return 'Calculating...';
+      // Use 30s baseline instead of "Calculating..."
+      const baselinePerParser = 30; // seconds
+      const totalEstimate = baselinePerParser * totalCount;
+      const currentElapsed = elapsedTime;
+      return Math.max(0, totalEstimate - currentElapsed);
     }
 
+    // After first parser: use actual average
     const completedParsers = parserQueue.filter(p => p.status === 'completed');
     const totalTimeCompleted = completedParsers.reduce((sum, p) => sum + p.time, 0);
     const avgTimePerParser = totalTimeCompleted / completedCount;
-    const remainingCount = totalCount - completedCount;
-    const estimatedRemaining = avgTimePerParser * remainingCount;
 
-    if (estimatedRemaining < 60) {
-      return `~${Math.ceil(estimatedRemaining)} seconds`;
+    // Account for current parser's elapsed time
+    const estimateForRemaining = avgTimePerParser * remainingCount;
+    const currentParserElapsed = elapsedTime;
+
+    return Math.max(0, estimateForRemaining - currentParserElapsed);
+  };
+
+  // Recalculate estimate when completedCount changes or current parser changes
+  useEffect(() => {
+    const estimate = calculateRawEstimate();
+    setLiveEstimate(estimate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedCount, currentParser, elapsedTime]);
+
+  // Format estimate for display
+  const formatEstimate = () => {
+    if (liveEstimate === null) return 'Calculating...';
+
+    const seconds = Math.ceil(liveEstimate);
+    const isRoughEstimate = completedCount === 0;
+
+    if (seconds < 60) {
+      return `~${seconds} second${seconds !== 1 ? 's' : ''}${isRoughEstimate ? ' (rough estimate)' : ''}`;
     } else {
-      const mins = Math.floor(estimatedRemaining / 60);
-      const secs = Math.ceil(estimatedRemaining % 60);
-      return `~${mins} minute${mins > 1 ? 's' : ''} ${secs > 0 ? ` ${secs} seconds` : ''}`;
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      const timeStr = `~${mins} minute${mins > 1 ? 's' : ''}${secs > 0 ? ` ${secs} second${secs !== 1 ? 's' : ''}` : ''}`;
+      return isRoughEstimate ? `${timeStr} (rough estimate)` : timeStr;
     }
   };
 
@@ -120,7 +159,7 @@ const ParserProgress = ({ parserQueue, currentParser, completedCount, totalCount
           <div className="time-remaining">
             <span style={{ color: '#6b7280', fontSize: '14px' }}>Estimated time remaining:</span>
             <strong style={{ color: '#2563eb', fontSize: '16px', fontFamily: 'monospace', marginLeft: '8px' }}>
-              {calculateEstimate()}
+              {formatEstimate()}
             </strong>
           </div>
         )}
