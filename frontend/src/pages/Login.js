@@ -31,16 +31,22 @@ const Login = () => {
     <div className="auth-container">
       <div className="auth-card">
         <div className="auth-header">
+          <img
+            src="https://cdn-liveutv.pressidium.com/wp-content/uploads/2024/01/Live-and-Ulimted-Light-Background-V2.png"
+            alt="LiveU Logo"
+            className="auth-logo"
+          />
           <h1>NGL</h1>
-          <p>Log Analysis Platform</p>
+          <p>Next Generation LiveU Log Analyzer</p>
         </div>
 
         <form onSubmit={handleSubmit} className="auth-form">
-          <h2>Sign In</h2>
+          <h2>Welcome Back</h2>
+          <p className="auth-subtitle">Sign in to continue to your dashboard</p>
 
           {error && (
             <div className="auth-error">
-              {error}
+              <strong>⚠️ Error:</strong> {error}
             </div>
           )}
 
@@ -51,6 +57,7 @@ const Login = () => {
               id="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              placeholder="Enter your username"
               required
               autoFocus
               disabled={loading}
@@ -64,19 +71,31 @@ const Login = () => {
               id="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter your password"
               required
               disabled={loading}
             />
           </div>
 
           <button type="submit" className="auth-button" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? (
+              <>
+                <span className="auth-spinner"></span>
+                Signing in...
+              </>
+            ) : (
+              'Sign In'
+            )}
           </button>
 
           <div className="auth-footer">
-            Need an account? Contact your administrator
+            <p>Need an account? <strong>Contact your administrator</strong></p>
           </div>
         </form>
+
+        <div className="auth-footer-branding">
+          <p>Powered by LiveU Technology</p>
+        </div>
       </div>
     </div>
   );
