@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
 const AuthContext = createContext(null);
@@ -15,6 +15,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [loading, setLoading] = useState(true);
+  const [lastActivity, setLastActivity] = useState(Date.now());
 
   // Configure axios defaults
   useEffect(() => {
@@ -24,6 +25,7 @@ export const AuthProvider = ({ children }) => {
     } else {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchCurrentUser = async () => {
@@ -82,7 +84,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       if (token) {
         await axios.post('/api/auth/logout');
@@ -95,7 +97,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem('token');
       delete axios.defaults.headers.common['Authorization'];
     }
-  };
+  }, [token]);
 
   const changePassword = async (currentPassword, newPassword) => {
     try {
@@ -116,6 +118,51 @@ export const AuthProvider = ({ children }) => {
   const isAdmin = () => {
     return user && user.role === 'admin';
   };
+
+  // Auto-logout after 10 minutes of inactivity
+  useEffect(() => {
+    if (!user || !token) return;
+
+    const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
+
+    // Activity event listeners
+    const activityEvents = [
+      'mousedown',
+      'mousemove',
+      'keypress',
+      'scroll',
+      'touchstart',
+      'click'
+    ];
+
+    const updateActivity = () => {
+      setLastActivity(Date.now());
+    };
+
+    // Add event listeners
+    activityEvents.forEach(event => {
+      document.addEventListener(event, updateActivity);
+    });
+
+    // Check for inactivity every minute
+    const inactivityChecker = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastActivity = now - lastActivity;
+
+      if (timeSinceLastActivity >= INACTIVITY_TIMEOUT) {
+        console.log('[AuthContext] User inactive for 10 minutes, logging out...');
+        logout();
+      }
+    }, 60 * 1000); // Check every minute
+
+    // Cleanup
+    return () => {
+      activityEvents.forEach(event => {
+        document.removeEventListener(event, updateActivity);
+      });
+      clearInterval(inactivityChecker);
+    };
+  }, [user, token, lastActivity, logout]);
 
   const value = {
     user,
