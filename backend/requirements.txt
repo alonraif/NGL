@@ -4,3 +4,19 @@ regex==2023.10.3
 pytz==2023.3
 python-dateutil==2.8.2
 Werkzeug==3.0.1
+
+# Database
+SQLAlchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.13.0
+
+# Authentication
+PyJWT==2.8.0
+bcrypt==4.1.2
+
+# Task Queue
+celery==5.3.4
+redis==5.0.1
+
+# Utilities
+python-dotenv==1.0.0
