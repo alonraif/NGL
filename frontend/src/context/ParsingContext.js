@@ -165,6 +165,37 @@ export const ParsingProvider = ({ children }) => {
     }, 5 * 60 * 1000);
   }, []);
 
+  const cancelJob = useCallback((jobId) => {
+    setParsingJobs(prev => {
+      const job = prev[jobId];
+      if (!job) return prev;
+
+      return {
+        ...prev,
+        [jobId]: {
+          ...job,
+          status: 'cancelled',
+          endTime: Date.now()
+        }
+      };
+    });
+  }, []);
+
+  const setCurrentAnalysisId = useCallback((jobId, analysisId) => {
+    setParsingJobs(prev => {
+      const job = prev[jobId];
+      if (!job) return prev;
+
+      return {
+        ...prev,
+        [jobId]: {
+          ...job,
+          currentAnalysisId: analysisId
+        }
+      };
+    });
+  }, []);
+
   const clearJob = useCallback((jobId) => {
     setParsingJobs(prev => {
       const newJobs = { ...prev };
@@ -190,6 +221,8 @@ export const ParsingProvider = ({ children }) => {
     updateParserStatus,
     addParserResult,
     completeJob,
+    cancelJob,
+    setCurrentAnalysisId,
     clearJob,
     getActiveJob,
     isParsingActive

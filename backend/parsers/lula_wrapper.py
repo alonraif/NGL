@@ -4,6 +4,7 @@ Wrapper for lula2.py - delegates parsing to the proven script
 import subprocess
 import os
 import re
+import signal
 from .base import BaseParser
 
 
@@ -32,11 +33,15 @@ class LulaWrapperParser(BaseParser):
         # which will be overridden to pass the archive file to lula2.py
         raise NotImplementedError("Use process() method instead")
 
-    def process(self, archive_path, timezone='US/Eastern', begin_date=None, end_date=None):
+    def process(self, archive_path, timezone='US/Eastern', begin_date=None, end_date=None, analysis_id=None, redis_client=None):
         """
         Full processing pipeline: call lula2.py with archive file directly
 
         Overrides BaseParser.process() to skip extraction and call lula2.py directly
+
+        Args:
+            analysis_id: Analysis ID for tracking (optional)
+            redis_client: Redis client for storing PID (optional)
         """
         # Build lula2.py command with the archive file
         cmd = ['python3', '/app/lula2.py', archive_path, '-p', self.mode, '-t', timezone]
@@ -46,18 +51,46 @@ class LulaWrapperParser(BaseParser):
         if end_date:
             cmd.extend(['-e', end_date])
 
-        # Execute lula2.py
-        result = subprocess.run(
+        # Execute lula2.py using Popen to track PID
+        process = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=600
+            preexec_fn=os.setsid  # Create new process group for easy killing
         )
 
-        if result.returncode != 0:
-            raise Exception(f"lula2.py error: {result.stderr}")
+        # Store PID in Redis if provided
+        if analysis_id and redis_client:
+            redis_key = f"analysis:{analysis_id}:pid"
+            redis_client.setex(redis_key, 3600, str(process.pid))  # Expire after 1 hour
+            print(f"[Parser] Stored PID {process.pid} for analysis {analysis_id}")
 
-        raw_output = result.stdout
+        # Wait for completion
+        try:
+            stdout, stderr = process.communicate(timeout=600)
+            returncode = process.returncode
+        except subprocess.TimeoutExpired:
+            # Kill the entire process group
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            raise Exception("lula2.py processing timed out after 10 minutes")
+
+        if returncode != 0:
+            # Clean up Redis entry on error
+            if analysis_id and redis_client:
+                redis_client.delete(f"analysis:{analysis_id}:pid")
+
+            # Check if process was killed (signal -9 = SIGKILL)
+            if returncode == -9 or returncode == -signal.SIGKILL:
+                raise Exception("Process was cancelled by user")
+
+            raise Exception(f"lula2.py error: {stderr}")
+
+        # Clean up Redis entry on success
+        if analysis_id and redis_client:
+            redis_client.delete(f"analysis:{analysis_id}:pid")
+
+        raw_output = stdout
 
         # Parse output based on mode
         parsed_data = self.parse_output(raw_output)
@@ -79,12 +112,12 @@ class LulaWrapperParser(BaseParser):
 class BandwidthParser(LulaWrapperParser):
     """Parser for bandwidth modes (bw, md-bw, md-db-bw)"""
 
-    def process(self, archive_path, timezone='US/Eastern', begin_date=None, end_date=None):
+    def process(self, archive_path, timezone='US/Eastern', begin_date=None, end_date=None, analysis_id=None, redis_client=None):
         """Override to store date filters for forward fill"""
         # Store end_date for forward filling in bw mode
         self.end_date = end_date
         self.timezone = timezone
-        return super().process(archive_path, timezone, begin_date, end_date)
+        return super().process(archive_path, timezone, begin_date, end_date, analysis_id, redis_client)
 
     def parse_output(self, output):
         """Parse CSV bandwidth data"""

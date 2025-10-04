@@ -9,6 +9,8 @@ from werkzeug.utils import secure_filename
 import os
 import time
 import traceback
+import signal
+import redis
 from parsers import get_parser
 from database import init_db, SessionLocal
 from models import User, Parser, LogFile, Analysis, AnalysisResult
@@ -16,6 +18,7 @@ from auth import token_required, log_audit
 from auth_routes import auth_bp
 from admin_routes import admin_bp
 from datetime import datetime, timedelta
+from config import Config
 import hashlib
 
 app = Flask(__name__)
@@ -24,6 +27,9 @@ CORS(app)
 # Register blueprints
 app.register_blueprint(auth_bp, url_prefix='/api/auth')
 app.register_blueprint(admin_bp, url_prefix='/api/admin')
+
+# Initialize Redis client
+redis_client = redis.from_url(Config.REDIS_URL, decode_responses=True)
 
 UPLOAD_FOLDER = '/app/uploads'
 TEMP_FOLDER = '/app/temp'
@@ -192,18 +198,27 @@ def upload_file(current_user, db):
         db.add(analysis)
         db.flush()
 
+        # Commit immediately so analysis is visible to cancel endpoint
+        db.commit()
+
+        # Store user's current analysis ID in Redis (for cancellation)
+        user_analysis_key = f"user:{current_user.id}:current_analysis"
+        redis_client.setex(user_analysis_key, 3600, str(analysis.id))
+
         app.logger.info(f"Processing {filename} in {parse_mode} mode for user {current_user.username}")
 
         try:
             # Get appropriate parser
             parser = get_parser(parse_mode)
 
-            # Process the file
+            # Process the file (pass analysis_id and redis_client for PID tracking)
             result = parser.process(
                 archive_path=filepath,
                 timezone=timezone,
                 begin_date=begin_date if begin_date else None,
-                end_date=end_date if end_date else None
+                end_date=end_date if end_date else None,
+                analysis_id=analysis.id,
+                redis_client=redis_client
             )
 
             processing_time = time.time() - start_time
@@ -226,6 +241,10 @@ def upload_file(current_user, db):
 
             db.commit()
 
+            # Clean up user's current analysis from Redis
+            user_analysis_key = f"user:{current_user.id}:current_analysis"
+            redis_client.delete(user_analysis_key)
+
             # Log audit
             log_audit(db, current_user.id, 'upload_and_parse', 'analysis', analysis.id, {
                 'filename': filename,
@@ -247,7 +266,23 @@ def upload_file(current_user, db):
             })
 
         except Exception as parse_error:
-            # Update analysis status
+            # Check if this was a user cancellation
+            if "cancelled by user" in str(parse_error).lower():
+                # Analysis was already marked as cancelled by the cancel endpoint
+                # Just clean up and return gracefully
+                app.logger.info(f"Analysis {analysis.id} was cancelled by user")
+
+                # Clean up Redis keys
+                user_analysis_key = f"user:{current_user.id}:current_analysis"
+                redis_client.delete(user_analysis_key)
+
+                # Return cancellation response
+                return jsonify({
+                    'success': False,
+                    'error': 'Analysis was cancelled by user'
+                }), 499  # 499 = Client Closed Request
+
+            # Update analysis status for other errors
             analysis.status = 'failed'
             analysis.completed_at = datetime.utcnow()
             analysis.error_message = str(parse_error)
@@ -275,6 +310,83 @@ def upload_file(current_user, db):
         db.rollback()
         app.logger.error(f"Upload error: {str(e)}\n{traceback.format_exc()}")
         return jsonify({'error': f'Upload error: {str(e)}'}), 500
+
+
+@app.route('/api/cancel', methods=['POST'])
+@token_required
+def cancel_analysis(current_user, db):
+    """Cancel the user's currently running analysis by killing its process"""
+    try:
+        # Get user's current analysis ID from Redis
+        user_analysis_key = f"user:{current_user.id}:current_analysis"
+        analysis_id_str = redis_client.get(user_analysis_key)
+
+        app.logger.info(f"Cancel request from user {current_user.username}, Redis key: {analysis_id_str}")
+
+        if not analysis_id_str:
+            return jsonify({'message': 'No running analysis found for user'}), 200
+
+        analysis_id = int(analysis_id_str)
+
+        # Get analysis (must belong to user unless admin)
+        query = db.query(Analysis).filter(Analysis.id == analysis_id)
+        if not current_user.is_admin():
+            query = query.filter(Analysis.user_id == current_user.id)
+
+        analysis = query.first()
+        if not analysis:
+            # Clean up stale Redis entry
+            app.logger.warning(f"Analysis {analysis_id} not found in database, cleaning up Redis")
+            redis_client.delete(user_analysis_key)
+            return jsonify({'message': 'No running analysis found (stale entry cleaned)'}), 200
+
+        # Check if analysis is running
+        if analysis.status != 'running':
+            # Clean up stale Redis entry
+            redis_client.delete(user_analysis_key)
+            return jsonify({'error': 'Analysis is not running'}), 400
+
+        # Get PID from Redis
+        redis_key = f"analysis:{analysis_id}:pid"
+        pid_str = redis_client.get(redis_key)
+
+        if not pid_str:
+            # Process already finished or PID expired
+            return jsonify({'message': 'Process already completed or PID not found'}), 200
+
+        pid = int(pid_str)
+
+        # Kill the process group (kills lula2.py and all children)
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+            app.logger.info(f"Killed process group {pid} for analysis {analysis_id}")
+        except ProcessLookupError:
+            # Process already dead
+            app.logger.info(f"Process {pid} already terminated")
+        except Exception as e:
+            app.logger.error(f"Error killing process {pid}: {e}")
+
+        # Update analysis status
+        analysis.status = 'cancelled'
+        analysis.completed_at = datetime.utcnow()
+        analysis.error_message = 'Cancelled by user'
+        db.commit()
+
+        # Clean up Redis
+        redis_client.delete(redis_key)
+        redis_client.delete(user_analysis_key)
+
+        app.logger.info(f"Analysis {analysis_id} cancelled by user {current_user.username}")
+
+        return jsonify({
+            'success': True,
+            'message': 'Analysis cancelled successfully'
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        app.logger.error(f"Cancel error: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Cancel error: {str(e)}'}), 500
 
 
 @app.route('/api/analyses', methods=['GET'])

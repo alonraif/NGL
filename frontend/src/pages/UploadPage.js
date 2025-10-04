@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +18,7 @@ function UploadPage() {
     updateParserStatus,
     addParserResult,
     completeJob,
+    cancelJob,
     clearJob,
     getActiveJob
   } = useParsing();
@@ -31,6 +32,8 @@ function UploadPage() {
   const [endDate, setEndDate] = useState(null);
   const [file, setFile] = useState(null);
   const [error, setError] = useState(null);
+  const [abortController, setAbortController] = useState(null);
+  const cancelledRef = useRef(false);
 
   // Get active job from context
   const activeJob = getActiveJob();
@@ -107,6 +110,41 @@ function UploadPage() {
     });
   };
 
+  const handleCancel = async () => {
+    console.log('[UploadPage] handleCancel called, activeJob:', activeJob);
+    if (activeJob && activeJob.status === 'running') {
+      console.log('[UploadPage] Cancelling job:', activeJob.id);
+      // Set cancellation flag
+      cancelledRef.current = true;
+      console.log('[UploadPage] cancelledRef set to:', cancelledRef.current);
+
+      // Abort ongoing HTTP request
+      if (abortController) {
+        console.log('[UploadPage] Aborting controller');
+        abortController.abort();
+      } else {
+        console.log('[UploadPage] No abortController found');
+      }
+
+      // Call backend cancel endpoint to kill the running process
+      try {
+        console.log('[UploadPage] Calling backend cancel endpoint');
+        await axios.post('/api/cancel');
+        console.log('[UploadPage] Backend cancel successful');
+      } catch (err) {
+        console.error('[UploadPage] Backend cancel failed:', err);
+      }
+
+      // Mark job as cancelled
+      cancelJob(activeJob.id);
+      console.log('[UploadPage] Job marked as cancelled');
+    } else {
+      console.log('[UploadPage] Clearing completed/cancelled job');
+      // Just clear completed/cancelled jobs
+      clearJob(activeJob.id);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -127,8 +165,15 @@ function UploadPage() {
 
     setError(null);
 
+    // Reset cancellation flag
+    cancelledRef.current = false;
+
     // Create unique job ID
     const jobId = `job_${Date.now()}`;
+
+    // Create AbortController for this job
+    const controller = new AbortController();
+    setAbortController(controller);
 
     // Initialize parsing job in context
     const parsers = selectedModes.map(mode => {
@@ -149,6 +194,12 @@ function UploadPage() {
     // Process parsers sequentially
     for (let i = 0; i < selectedModes.length; i++) {
       const mode = selectedModes[i];
+
+      // Check if job was cancelled using ref
+      if (cancelledRef.current) {
+        console.log('[UploadPage] Job cancelled via ref, stopping parser loop');
+        break;
+      }
 
       // Update parser status to running
       updateParserStatus(jobId, i, 'running');
@@ -175,6 +226,7 @@ function UploadPage() {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
+          signal: controller.signal
         });
         const processingTime = (Date.now() - startTime) / 1000;
 
@@ -185,7 +237,17 @@ function UploadPage() {
         addParserResult(jobId, response.data);
 
       } catch (err) {
-        const processingTime = (Date.now() - Date.now()) / 1000;
+        // Check if request was aborted
+        if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {
+          console.log('[UploadPage] Request cancelled by user');
+          updateParserStatus(jobId, i, 'cancelled', {
+            time: 0,
+            error: 'Cancelled by user'
+          });
+          break; // Stop processing remaining parsers
+        }
+
+        const processingTime = 0;
         const errorMsg = err.response?.data?.error || 'An error occurred while processing';
 
         // Update parser status to failed
@@ -204,8 +266,14 @@ function UploadPage() {
       }
     }
 
-    // Complete the job
-    completeJob(jobId);
+    // Check final job status using ref
+    if (!cancelledRef.current) {
+      // Complete the job only if it wasn't cancelled
+      completeJob(jobId);
+    }
+
+    // Clean up abort controller
+    setAbortController(null);
   };
 
   // Helper function to format date to 'YYYY-MM-DD HH:MM:SS'
@@ -288,7 +356,7 @@ function UploadPage() {
                 </p>
               </div>
               <button
-                onClick={() => clearJob(activeJob.id)}
+                onClick={handleCancel}
                 className="btn btn-secondary"
                 style={{ marginLeft: '20px' }}
               >
