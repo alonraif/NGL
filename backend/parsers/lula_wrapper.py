@@ -79,6 +79,13 @@ class LulaWrapperParser(BaseParser):
 class BandwidthParser(LulaWrapperParser):
     """Parser for bandwidth modes (bw, md-bw, md-db-bw)"""
 
+    def process(self, archive_path, timezone='US/Eastern', begin_date=None, end_date=None):
+        """Override to store date filters for forward fill"""
+        # Store end_date for forward filling in bw mode
+        self.end_date = end_date
+        self.timezone = timezone
+        return super().process(archive_path, timezone, begin_date, end_date)
+
     def parse_output(self, output):
         """Parse CSV bandwidth data"""
         lines = output.strip().split('\n')
@@ -189,11 +196,14 @@ class BandwidthParser(LulaWrapperParser):
         return data
 
     def _parse_stream_bandwidth(self, lines):
-        """Parse bw stream bandwidth data"""
+        """Parse bw stream bandwidth data with forward fill for continuous visualization"""
+        from datetime import datetime, timedelta
+
         data = []
         for line in lines[1:]:  # Skip header
-            if not line.strip() or line.startswith('0,0,0'):
+            if not line.strip():
                 continue
+            # Don't skip "0,0,0" lines - they may be stream end markers
             parts = [p.strip() for p in line.split(',')]
             if len(parts) >= 3:
                 data.append({
@@ -202,7 +212,89 @@ class BandwidthParser(LulaWrapperParser):
                     'video bitrate': parts[2],
                     'notes': parts[3] if len(parts) > 3 else ''
                 })
-        return data
+
+        if len(data) == 0:
+            return data
+
+        # Forward fill gaps with last known bandwidth value
+        filled_data = []
+        fill_interval_seconds = 5  # Add point every 5 seconds during gaps
+
+        for i, point in enumerate(data):
+            filled_data.append(point)
+
+            # Check if there's a next point
+            if i < len(data) - 1:
+                try:
+                    # Parse timestamps (format: "2025-10-03 07:36:39")
+                    current_time = datetime.strptime(point['datetime'], '%Y-%m-%d %H:%M:%S')
+                    next_time = datetime.strptime(data[i+1]['datetime'], '%Y-%m-%d %H:%M:%S')
+
+                    gap_seconds = (next_time - current_time).total_seconds()
+
+                    # If gap > fill_interval_seconds, fill with intermediate points
+                    # Only fill if current point is not "Stream end" or "Stream start"
+                    if gap_seconds > fill_interval_seconds and 'Stream' not in point['notes']:
+                        num_fills = int(gap_seconds / fill_interval_seconds)
+
+                        # Limit fills to prevent excessive data (max 1000 points per gap)
+                        if num_fills > 1000:
+                            fill_interval = gap_seconds / 1000
+                            num_fills = 1000
+                        else:
+                            fill_interval = fill_interval_seconds
+
+                        for j in range(1, num_fills):
+                            fill_time = current_time + timedelta(seconds=j * fill_interval)
+                            filled_data.append({
+                                'datetime': fill_time.strftime('%Y-%m-%d %H:%M:%S'),
+                                'total bitrate': point['total bitrate'],
+                                'video bitrate': point['video bitrate'],
+                                'notes': '(forward filled)'
+                            })
+
+                except (ValueError, KeyError) as e:
+                    # If timestamp parsing fails, skip filling for this gap
+                    continue
+
+        # If we have an end_date filter and the last point isn't a stream end,
+        # fill forward to the end_date
+        if len(filled_data) > 0 and hasattr(self, 'end_date') and self.end_date:
+            last_point = filled_data[-1]
+
+            # Don't fill beyond stream end markers
+            if 'Stream' not in last_point['notes']:
+                try:
+                    last_time = datetime.strptime(last_point['datetime'], '%Y-%m-%d %H:%M:%S')
+                    end_time = datetime.strptime(self.end_date, '%Y-%m-%d %H:%M:%S')
+
+                    gap_seconds = (end_time - last_time).total_seconds()
+
+                    if gap_seconds > fill_interval_seconds:
+                        num_fills = int(gap_seconds / fill_interval_seconds)
+
+                        # Limit fills to prevent excessive data (max 1000 points)
+                        if num_fills > 1000:
+                            fill_interval = gap_seconds / 1000
+                            num_fills = 1000
+                        else:
+                            fill_interval = fill_interval_seconds
+
+                        for j in range(1, num_fills + 1):
+                            fill_time = last_time + timedelta(seconds=j * fill_interval)
+                            if fill_time <= end_time:
+                                filled_data.append({
+                                    'datetime': fill_time.strftime('%Y-%m-%d %H:%M:%S'),
+                                    'total bitrate': last_point['total bitrate'],
+                                    'video bitrate': last_point['video bitrate'],
+                                    'notes': '(forward filled to end_date)'
+                                })
+
+                except (ValueError, KeyError) as e:
+                    # If timestamp parsing fails, skip end filling
+                    pass
+
+        return filled_data
 
 
 class ModemStatsParser(LulaWrapperParser):
