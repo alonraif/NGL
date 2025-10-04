@@ -11,6 +11,8 @@ const AdminDashboard = () => {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [parsers, setParsers] = useState([]);
+  const [analyses, setAnalyses] = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
@@ -27,7 +29,14 @@ const AdminDashboard = () => {
     fetchStats();
     fetchUsers();
     fetchParsers();
+    fetchAnalyses();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'analyses') {
+      fetchAnalyses();
+    }
+  }, [selectedUserId]);
 
   const fetchStats = async () => {
     try {
@@ -55,6 +64,57 @@ const AdminDashboard = () => {
       setParsers(response.data.parsers);
     } catch (error) {
       console.error('Failed to fetch parsers:', error);
+    }
+  };
+
+  const fetchAnalyses = async () => {
+    try {
+      const params = {};
+      if (selectedUserId) {
+        params.user_id = selectedUserId;
+      }
+      const response = await axios.get('/api/admin/analyses', { params });
+      setAnalyses(response.data.analyses);
+    } catch (error) {
+      console.error('Failed to fetch analyses:', error);
+    }
+  };
+
+  const deleteAnalysis = async (analysisId, isHard = false) => {
+    const confirmMsg = isHard
+      ? 'Are you sure you want to PERMANENTLY delete this analysis? This cannot be undone!'
+      : 'Soft delete this analysis? It can be recovered within 90 days.';
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      await axios.delete(`/api/admin/analyses/${analysisId}/delete?type=${isHard ? 'hard' : 'soft'}`);
+      fetchAnalyses();
+      alert(`Analysis ${isHard ? 'permanently' : 'soft'} deleted successfully`);
+    } catch (error) {
+      console.error('Failed to delete analysis:', error);
+      alert('Failed to delete analysis');
+    }
+  };
+
+  const bulkDeleteUserAnalyses = async (userId, isHard = false) => {
+    const user = users.find(u => u.id === userId);
+    const confirmMsg = isHard
+      ? `PERMANENTLY delete ALL analyses for user ${user?.username}? This cannot be undone!`
+      : `Soft delete ALL analyses for user ${user?.username}? Can be recovered within 90 days.`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      await axios.post('/api/admin/analyses/bulk-delete', {
+        user_id: userId,
+        type: isHard ? 'hard' : 'soft'
+      });
+      fetchAnalyses();
+      alert(`All analyses for user ${user?.username} ${isHard ? 'permanently' : 'soft'} deleted`);
+    } catch (error) {
+      console.error('Failed to bulk delete:', error);
+      alert('Failed to bulk delete analyses');
     }
   };
 
@@ -199,6 +259,12 @@ const AdminDashboard = () => {
               onClick={() => setActiveTab('parsers')}
             >
               Parsers
+            </button>
+            <button
+              className={`admin-tab ${activeTab === 'analyses' ? 'active' : ''}`}
+              onClick={() => setActiveTab('analyses')}
+            >
+              Analyses
             </button>
           </div>
 
@@ -458,6 +524,116 @@ const AdminDashboard = () => {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {activeTab === 'analyses' && (
+            <div className="admin-content">
+              <h2>Analyses Management</h2>
+
+              <div style={{ marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <label>Filter by User:</label>
+                <select
+                  value={selectedUserId || ''}
+                  onChange={(e) => setSelectedUserId(e.target.value ? parseInt(e.target.value) : null)}
+                  className="form-control"
+                  style={{ width: 'auto' }}
+                >
+                  <option value="">All Users</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.id}>{u.username}</option>
+                  ))}
+                </select>
+
+                {selectedUserId && (
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px' }}>
+                    <button
+                      onClick={() => bulkDeleteUserAnalyses(selectedUserId, false)}
+                      className="btn btn-small btn-warning"
+                    >
+                      Soft Delete All for User
+                    </button>
+                    <button
+                      onClick={() => bulkDeleteUserAnalyses(selectedUserId, true)}
+                      className="btn btn-small btn-danger"
+                    >
+                      Hard Delete All for User
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <p style={{ marginBottom: '10px' }}>
+                Showing {analyses.length} analyses
+                {selectedUserId && ` for user ${users.find(u => u.id === selectedUserId)?.username}`}
+              </p>
+
+              <table className="analysis-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>User</th>
+                    <th>Session Name</th>
+                    <th>Parser</th>
+                    <th>Filename</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Time</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analyses.map(a => (
+                    <tr key={a.id} className={a.is_deleted ? 'deleted-row' : ''}>
+                      <td>{a.id}</td>
+                      <td>{a.username}</td>
+                      <td>{a.session_name || '-'}</td>
+                      <td><code>{a.parse_mode}</code></td>
+                      <td>{a.filename || '-'}</td>
+                      <td>
+                        <span className={`status-badge ${
+                          a.status === 'completed' ? 'status-success' :
+                          a.status === 'failed' ? 'status-error' :
+                          a.status === 'running' ? 'status-warning' : 'status-info'
+                        }`}>
+                          {a.status}
+                        </span>
+                        {a.is_deleted && (
+                          <span className="status-badge status-error" style={{ marginLeft: '5px' }}>
+                            Deleted
+                          </span>
+                        )}
+                      </td>
+                      <td>{new Date(a.created_at).toLocaleString()}</td>
+                      <td>{a.processing_time_seconds ? `${a.processing_time_seconds}s` : '-'}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '5px' }}>
+                          <button
+                            onClick={() => deleteAnalysis(a.id, false)}
+                            className="btn btn-small btn-warning"
+                            title="Soft delete (recoverable)"
+                          >
+                            Soft Del
+                          </button>
+                          <button
+                            onClick={() => deleteAnalysis(a.id, true)}
+                            className="btn btn-small btn-danger"
+                            title="Permanently delete"
+                          >
+                            Hard Del
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {analyses.length === 0 && (
+                <p style={{ textAlign: 'center', marginTop: '20px', color: '#666' }}>
+                  No analyses found{selectedUserId ? ' for this user' : ''}
+                </p>
+              )}
             </div>
           )}
         </div>

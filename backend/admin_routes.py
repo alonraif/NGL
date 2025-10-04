@@ -474,6 +474,140 @@ def admin_delete_analysis(analysis_id, current_user, db):
         return jsonify({'error': f'Failed to delete analysis: {str(e)}'}), 500
 
 
+@admin_bp.route('/analyses', methods=['GET'])
+@admin_required
+def list_all_analyses(current_user, db):
+    """List ALL analyses from all users with filtering (admin only)"""
+    try:
+        # Get filter parameters
+        user_id = request.args.get('user_id', type=int)
+        parse_mode = request.args.get('parse_mode')
+        status = request.args.get('status')
+        include_deleted = request.args.get('include_deleted', 'false').lower() == 'true'
+
+        # Build query
+        query = db.query(Analysis)
+
+        # Apply filters
+        if user_id:
+            query = query.filter(Analysis.user_id == user_id)
+
+        if parse_mode:
+            query = query.filter(Analysis.parse_mode == parse_mode)
+
+        if status:
+            query = query.filter(Analysis.status == status)
+
+        if not include_deleted:
+            query = query.filter(Analysis.is_deleted == False)
+
+        # Order by most recent first
+        analyses = query.order_by(Analysis.created_at.desc()).all()
+
+        return jsonify({
+            'analyses': [{
+                'id': a.id,
+                'user_id': a.user_id,
+                'username': a.user.username if a.user else None,
+                'parse_mode': a.parse_mode,
+                'session_name': a.session_name,
+                'zendesk_case': a.zendesk_case,
+                'filename': a.log_file.original_filename if a.log_file else None,
+                'status': a.status,
+                'created_at': a.created_at.isoformat(),
+                'completed_at': a.completed_at.isoformat() if a.completed_at else None,
+                'processing_time_seconds': a.processing_time_seconds,
+                'error_message': a.error_message,
+                'is_deleted': a.is_deleted,
+                'deleted_at': a.deleted_at.isoformat() if a.deleted_at else None
+            } for a in analyses]
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to list analyses: {str(e)}'}), 500
+
+
+@admin_bp.route('/analyses/bulk-delete', methods=['POST'])
+@admin_required
+def bulk_delete_analyses(current_user, db):
+    """Bulk delete analyses for a user or by filter (admin only)"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        analysis_ids = data.get('analysis_ids', [])
+        deletion_type = data.get('type', 'soft')  # 'soft' or 'hard'
+
+        if not user_id and not analysis_ids:
+            return jsonify({'error': 'Either user_id or analysis_ids must be provided'}), 400
+
+        # Build query
+        if analysis_ids:
+            query = db.query(Analysis).filter(Analysis.id.in_(analysis_ids))
+        else:
+            query = db.query(Analysis).filter(Analysis.user_id == user_id)
+
+        analyses = query.all()
+
+        if not analyses:
+            return jsonify({'error': 'No analyses found matching criteria'}), 404
+
+        deleted_count = 0
+        for analysis in analyses:
+            if deletion_type == 'hard':
+                # Log hard deletion
+                deletion_log = DeletionLog(
+                    entity_type='analysis',
+                    entity_id=analysis.id,
+                    entity_name=f"Analysis {analysis.id} - {analysis.parse_mode}",
+                    deleted_by=current_user.id,
+                    deletion_type='hard',
+                    reason=f'Admin bulk delete for user {user_id}' if user_id else 'Admin bulk delete',
+                    can_recover=False
+                )
+                db.add(deletion_log)
+
+                # Delete from database
+                db.delete(analysis)
+            else:
+                # Soft delete
+                analysis.is_deleted = True
+                analysis.deleted_at = datetime.utcnow()
+
+                # Log soft deletion
+                deletion_log = DeletionLog(
+                    entity_type='analysis',
+                    entity_id=analysis.id,
+                    entity_name=f"Analysis {analysis.id} - {analysis.parse_mode}",
+                    deleted_by=current_user.id,
+                    deletion_type='soft',
+                    reason=f'Admin bulk delete for user {user_id}' if user_id else 'Admin bulk delete',
+                    can_recover=True
+                )
+                db.add(deletion_log)
+
+            deleted_count += 1
+
+        db.commit()
+
+        # Log audit
+        log_audit(db, current_user.id, f'bulk_{deletion_type}_delete_analyses', 'analysis', None, {
+            'user_id': user_id,
+            'count': deleted_count,
+            'deletion_type': deletion_type
+        })
+
+        return jsonify({
+            'success': True,
+            'message': f'{deleted_count} analyses {"permanently" if deletion_type == "hard" else "soft"} deleted',
+            'count': deleted_count,
+            'deletion_type': deletion_type
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': f'Failed to bulk delete analyses: {str(e)}'}), 500
+
+
 @admin_bp.route('/stats', methods=['GET'])
 @admin_required
 def get_system_stats(current_user, db):
