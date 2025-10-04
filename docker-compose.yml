@@ -43,6 +43,8 @@ services:
       - ./backend:/app
       - uploads:/app/uploads
       - temp:/app/temp
+      - ./test_config.json:/app/test_config.json:ro
+      - ./test_logs:/app/test_logs:ro
     environment:
       - FLASK_ENV=development
       - PYTHONUNBUFFERED=1

@@ -1,0 +1,15 @@
+{
+  "test_file": "test_logs/sample.tar.bz2",
+  "timezone": "US/Eastern",
+  "begin_date": "REPLACE_WITH_YOUR_START_DATE",
+  "end_date": "REPLACE_WITH_YOUR_END_DATE",
+  "test_user": {
+    "username": "testuser",
+    "password": "Test123!",
+    "email": "test@example.com"
+  },
+  "session_name_prefix": "Automated Test",
+  "zendesk_case": "TEST-AUTO",
+  "timeout_seconds": 300,
+  "poll_interval_seconds": 2
+}

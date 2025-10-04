@@ -52,3 +52,6 @@ celerybeat.pid
 
 # Logs
 *.tar.bz2
+
+# Test files
+test_logs/
