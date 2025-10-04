@@ -4,7 +4,13 @@ Base parser class for all log parsers
 import os
 import tempfile
 import subprocess
+import threading
 from abc import ABC, abstractmethod
+
+
+class CancellationException(Exception):
+    """Exception raised when parsing is cancelled"""
+    pass
 
 
 class BaseParser(ABC):
@@ -13,6 +19,8 @@ class BaseParser(ABC):
     def __init__(self, mode):
         self.mode = mode
         self.temp_dir = None
+        self.cancelled = threading.Event()  # Cancellation flag for in-process cancellation
+        self._check_interval = 1000  # Check cancellation every N lines
 
     def extract_logs(self, archive_path):
         """
@@ -89,6 +97,15 @@ class BaseParser(ABC):
                     return decompressed_path
 
         raise FileNotFoundError("messages.log not found in archive")
+
+    def cancel(self):
+        """Signal the parser to stop processing"""
+        self.cancelled.set()
+
+    def check_cancelled(self):
+        """Check if cancellation was requested and raise exception if so"""
+        if self.cancelled.is_set():
+            raise CancellationException("Parsing cancelled by user")
 
     def cleanup(self):
         """Clean up temporary files"""

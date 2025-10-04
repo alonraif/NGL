@@ -11,7 +11,9 @@ import time
 import traceback
 import signal
 import redis
+import threading
 from parsers import get_parser
+from parsers.base import CancellationException
 from database import init_db, SessionLocal
 from models import User, Parser, LogFile, Analysis, AnalysisResult
 from auth import token_required, log_audit
@@ -30,6 +32,11 @@ app.register_blueprint(admin_bp, url_prefix='/api/admin')
 
 # Initialize Redis client
 redis_client = redis.from_url(Config.REDIS_URL, decode_responses=True)
+
+# Global dictionary to track active parsers for in-process cancellation
+# Key: f"user_id:analysis_id", Value: parser instance
+active_parsers = {}
+parsers_lock = threading.Lock()  # Thread-safe access to active_parsers
 
 UPLOAD_FOLDER = '/app/uploads'
 TEMP_FOLDER = '/app/temp'
@@ -211,13 +218,23 @@ def upload_file(current_user, db):
             # Get appropriate parser
             parser = get_parser(parse_mode)
 
-            # Process the file using standalone parser (in-process, no subprocess)
-            result = parser.process(
-                archive_path=filepath,
-                timezone=timezone,
-                begin_date=begin_date if begin_date else None,
-                end_date=end_date if end_date else None
-            )
+            # Register parser for in-process cancellation
+            parser_key = f"{current_user.id}:{analysis.id}"
+            with parsers_lock:
+                active_parsers[parser_key] = parser
+
+            try:
+                # Process the file using standalone parser (in-process, no subprocess)
+                result = parser.process(
+                    archive_path=filepath,
+                    timezone=timezone,
+                    begin_date=begin_date if begin_date else None,
+                    end_date=end_date if end_date else None
+                )
+            finally:
+                # Always remove parser from active list
+                with parsers_lock:
+                    active_parsers.pop(parser_key, None)
 
             processing_time = time.time() - start_time
 
@@ -263,22 +280,22 @@ def upload_file(current_user, db):
                 'error': None
             })
 
+        except CancellationException as cancel_error:
+            # Parser was cancelled via in-process cancellation
+            app.logger.info(f"Analysis {analysis.id} was cancelled by user (in-process)")
+
+            # Clean up Redis keys
+            user_analysis_key = f"user:{current_user.id}:current_analysis"
+            redis_client.delete(user_analysis_key)
+
+            # Analysis status already updated by cancel endpoint
+            # Return cancellation response
+            return jsonify({
+                'success': False,
+                'error': 'Analysis was cancelled by user'
+            }), 499  # 499 = Client Closed Request
+
         except Exception as parse_error:
-            # Check if this was a user cancellation
-            if "cancelled by user" in str(parse_error).lower():
-                # Analysis was already marked as cancelled by the cancel endpoint
-                # Just clean up and return gracefully
-                app.logger.info(f"Analysis {analysis.id} was cancelled by user")
-
-                # Clean up Redis keys
-                user_analysis_key = f"user:{current_user.id}:current_analysis"
-                redis_client.delete(user_analysis_key)
-
-                # Return cancellation response
-                return jsonify({
-                    'success': False,
-                    'error': 'Analysis was cancelled by user'
-                }), 499  # 499 = Client Closed Request
 
             # Update analysis status for other errors
             analysis.status = 'failed'
@@ -313,13 +330,13 @@ def upload_file(current_user, db):
 @app.route('/api/cancel', methods=['POST'])
 @token_required
 def cancel_analysis(current_user, db):
-    """Cancel the user's currently running analysis by killing its process"""
+    """Cancel the user's currently running analysis using in-process cancellation"""
     try:
         # Get user's current analysis ID from Redis
         user_analysis_key = f"user:{current_user.id}:current_analysis"
         analysis_id_str = redis_client.get(user_analysis_key)
 
-        app.logger.info(f"Cancel request from user {current_user.username}, Redis key: {analysis_id_str}")
+        app.logger.info(f"Cancel request from user {current_user.username}, analysis: {analysis_id_str}")
 
         if not analysis_id_str:
             return jsonify({'message': 'No running analysis found for user'}), 200
@@ -334,35 +351,26 @@ def cancel_analysis(current_user, db):
         analysis = query.first()
         if not analysis:
             # Clean up stale Redis entry
-            app.logger.warning(f"Analysis {analysis_id} not found in database, cleaning up Redis")
+            app.logger.warning(f"Analysis {analysis_id} not found in database")
             redis_client.delete(user_analysis_key)
             return jsonify({'message': 'No running analysis found (stale entry cleaned)'}), 200
 
         # Check if analysis is running
         if analysis.status != 'running':
-            # Clean up stale Redis entry
             redis_client.delete(user_analysis_key)
-            return jsonify({'error': 'Analysis is not running'}), 400
+            return jsonify({'message': 'Analysis is not running'}), 200
 
-        # Get PID from Redis
-        redis_key = f"analysis:{analysis_id}:pid"
-        pid_str = redis_client.get(redis_key)
+        # Find active parser and cancel it (in-process cancellation)
+        parser_key = f"{current_user.id}:{analysis_id}"
+        with parsers_lock:
+            parser = active_parsers.get(parser_key)
 
-        if not pid_str:
-            # Process already finished or PID expired
-            return jsonify({'message': 'Process already completed or PID not found'}), 200
-
-        pid = int(pid_str)
-
-        # Kill the process group (kills lula2.py and all children)
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
-            app.logger.info(f"Killed process group {pid} for analysis {analysis_id}")
-        except ProcessLookupError:
-            # Process already dead
-            app.logger.info(f"Process {pid} already terminated")
-        except Exception as e:
-            app.logger.error(f"Error killing process {pid}: {e}")
+        if parser:
+            # Cancel the parser (sets threading.Event, parser will check and stop)
+            parser.cancel()
+            app.logger.info(f"Sent cancellation signal to parser for analysis {analysis_id}")
+        else:
+            app.logger.info(f"Parser for analysis {analysis_id} not found (may have already completed)")
 
         # Update analysis status
         analysis.status = 'cancelled'
@@ -371,7 +379,6 @@ def cancel_analysis(current_user, db):
         db.commit()
 
         # Clean up Redis
-        redis_client.delete(redis_key)
         redis_client.delete(user_analysis_key)
 
         app.logger.info(f"Analysis {analysis_id} cancelled by user {current_user.username}")
