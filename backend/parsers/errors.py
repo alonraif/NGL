@@ -83,13 +83,16 @@ class ErrorParser(BaseParser):
         # Date filtering
         if begin_date or end_date:
             filtered = []
-            timestamp_pattern = re.compile(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})')
+            # Match ISO 8601 format: 2025-09-26T12:15:30.207700+00:00
+            timestamp_pattern = re.compile(r'(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})')
 
             for line in matched_lines:
                 match = timestamp_pattern.search(line)
                 if match:
                     try:
-                        dt = datetime.strptime(match.group(1), '%Y-%m-%d %H:%M:%S')
+                        # Combine date and time parts
+                        timestamp_str = f"{match.group(1)} {match.group(2)}"
+                        dt = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
 
                         if begin_date:
                             begin_dt = datetime.strptime(begin_date, '%Y-%m-%d %H:%M:%S')

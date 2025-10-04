@@ -63,40 +63,64 @@ class BaseParser(ABC):
 
     def find_messages_log(self, directory):
         """
-        Find messages.log file in extracted directory
-        Handles compressed files (.log.gz, .log.bz2)
-        Returns path to messages.log
+        Find ALL messages.log files in extracted directory (including rotated logs)
+        Handles compressed files (.log.gz, .log.bz2) and rotated logs (messages.log.N.gz)
+        Combines all logs into a single file and returns path
         """
         import gzip
         import bz2
+        import shutil
+        import re
 
+        messages_files = []
+
+        # Find all messages.log* files
         for root, dirs, files in os.walk(directory):
             for file in files:
-                filepath = os.path.join(root, file)
+                # Match messages.log, messages.log.N, messages.log.N.gz, messages.log.N.bz2, etc
+                if file == 'messages.log' or file.startswith('messages.log.'):
+                    filepath = os.path.join(root, file)
+                    messages_files.append(filepath)
 
-                # Direct match
-                if file == 'messages.log':
-                    return filepath
+        if not messages_files:
+            raise FileNotFoundError("No messages.log files found in archive")
 
-                # Compressed with gz
-                elif file.endswith('messages.log.gz') or file == 'messages.log.gz':
-                    decompressed_path = filepath[:-3]  # Remove .gz
-                    with gzip.open(filepath, 'rb') as f_in:
-                        with open(decompressed_path, 'wb') as f_out:
-                            import shutil
-                            shutil.copyfileobj(f_in, f_out)
-                    return decompressed_path
+        # Sort files numerically (messages.log.1, messages.log.2, ... messages.log.90)
+        # messages.log (no number) should come last (most recent)
+        def sort_key(path):
+            filename = os.path.basename(path)
+            # Extract number from messages.log.N or messages.log.N.gz
+            match = re.search(r'messages\.log\.(\d+)', filename)
+            if match:
+                return int(match.group(1))
+            else:
+                # messages.log without number = most recent = last
+                return 999999
 
-                # Compressed with bz2
-                elif file.endswith('messages.log.bz2') or file == 'messages.log.bz2':
-                    decompressed_path = filepath[:-4]  # Remove .bz2
-                    with bz2.open(filepath, 'rb') as f_in:
-                        with open(decompressed_path, 'wb') as f_out:
-                            import shutil
-                            shutil.copyfileobj(f_in, f_out)
-                    return decompressed_path
+        messages_files.sort(key=sort_key)
 
-        raise FileNotFoundError("messages.log not found in archive")
+        # Combined output file
+        combined_path = os.path.join(directory, 'combined_messages.log')
+
+        # Decompress and concatenate all log files
+        with open(combined_path, 'wb') as combined:
+            for filepath in messages_files:
+                try:
+                    if filepath.endswith('.gz'):
+                        with gzip.open(filepath, 'rb') as f:
+                            shutil.copyfileobj(f, combined)
+                    elif filepath.endswith('.bz2'):
+                        with bz2.open(filepath, 'rb') as f:
+                            shutil.copyfileobj(f, combined)
+                    else:
+                        with open(filepath, 'rb') as f:
+                            shutil.copyfileobj(f, combined)
+                except Exception as e:
+                    # Log decompression error but continue with other files
+                    print(f"Warning: Failed to process {filepath}: {e}")
+                    continue
+
+        return combined_path
 
     def cancel(self):
         """Signal the parser to stop processing"""
