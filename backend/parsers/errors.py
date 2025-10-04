@@ -36,6 +36,11 @@ class ErrorParser(BaseParser):
         r'rejected',
     ]
 
+    # Pre-compile patterns at class level for performance (compile once, use many times)
+    _COMPILED_KNOWN = [re.compile(p, re.IGNORECASE) for p in KNOWN_ERRORS]
+    _COMPILED_VERBOSE = [re.compile(p, re.IGNORECASE) for p in VERBOSE_ERRORS]
+    _COMPILED_ERROR = [re.compile(r'ERROR', re.IGNORECASE)]
+
     def parse(self, log_path, timezone='US/Eastern', begin_date=None, end_date=None):
         """
         Parse error/event logs based on mode
@@ -49,13 +54,13 @@ class ErrorParser(BaseParser):
         matched_lines = []
         all_lines = []
 
-        # Compile patterns based on mode
+        # Use pre-compiled patterns for performance
         if self.mode == 'known':
-            patterns = [re.compile(p, re.IGNORECASE) for p in self.KNOWN_ERRORS]
+            patterns = self._COMPILED_KNOWN
         elif self.mode == 'error':
-            patterns = [re.compile(r'ERROR', re.IGNORECASE)]
+            patterns = self._COMPILED_ERROR
         elif self.mode == 'v':
-            patterns = [re.compile(p, re.IGNORECASE) for p in self.VERBOSE_ERRORS]
+            patterns = self._COMPILED_VERBOSE
         else:  # all
             patterns = None
 
