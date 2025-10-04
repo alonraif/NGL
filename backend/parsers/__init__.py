@@ -1,14 +1,16 @@
 """
 Modular log parsers for LiveU logs
-Standalone parsers for efficient in-process parsing
+Uses lula_wrapper to delegate to proven lula2.py script
 """
 from .base import BaseParser
-from .bandwidth import BandwidthParser
-from .modem_stats import ModemStatsParser
-from .sessions import SessionsParser
-from .errors import ErrorParser
-from .system import SystemParser
-from .device_id import DeviceIDParser
+from .lula_wrapper import (
+    BandwidthParser,
+    ModemStatsParser,
+    SessionsParser,
+    ErrorParser,
+    SystemParser,
+    DeviceIDParser
+)
 
 # Parser registry
 PARSERS = {
