@@ -73,24 +73,34 @@ def login(config):
     """Login and get JWT token"""
     print(f"\n{BLUE}Logging in as {config['test_user']['username']}...{RESET}")
 
-    response = requests.post(
-        f"{BASE_URL}/api/auth/login",
-        json={
-            'username': config['test_user']['username'],
-            'password': config['test_user']['password']
-        }
-    )
+    try:
+        response = requests.post(
+            f"{BASE_URL}/api/auth/login",
+            json={
+                'username': config['test_user']['username'],
+                'password': config['test_user']['password']
+            }
+        )
 
-    if response.status_code == 200:
-        token = response.json()['token']
-        print(f"{GREEN}✓ Login successful{RESET}")
-        return token
-    elif response.status_code == 401:
-        # Try to create user if login fails
-        print(f"{YELLOW}User not found, attempting to create test user...{RESET}")
-        return create_user_and_login(config)
-    else:
-        print(f"{RED}✗ Login failed: {response.status_code} {response.text}{RESET}")
+        if response.status_code == 200:
+            data = response.json()
+            # Support both 'token' and 'access_token' response formats
+            token = data.get('token') or data.get('access_token')
+            if not token:
+                print(f"{RED}✗ Login response missing token. Response: {data}{RESET}")
+                sys.exit(1)
+            print(f"{GREEN}✓ Login successful{RESET}")
+            return token
+        elif response.status_code == 401:
+            # Try to create user if login fails
+            print(f"{YELLOW}User not found, attempting to create test user...{RESET}")
+            return create_user_and_login(config)
+        else:
+            print(f"{RED}✗ Login failed: {response.status_code} {response.text}{RESET}")
+            sys.exit(1)
+    except Exception as e:
+        print(f"{RED}✗ Login error: {e}{RESET}")
+        print(f"{YELLOW}Make sure the backend is running on {BASE_URL}{RESET}")
         sys.exit(1)
 
 
@@ -173,11 +183,13 @@ def wait_for_completion(token, analysis_id, config):
         )
 
         if response.status_code == 200:
-            analysis = response.json()
+            data = response.json()
+            # The response has 'analysis' nested inside
+            analysis = data.get('analysis', {})
             status = analysis.get('status')
 
             if status == 'completed':
-                return {'success': True, 'analysis': analysis}
+                return {'success': True, 'analysis': data}
             elif status == 'failed':
                 return {'success': False, 'error': analysis.get('error_message', 'Unknown error')}
 
