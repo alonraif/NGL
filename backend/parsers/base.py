@@ -17,20 +17,36 @@ class BaseParser(ABC):
     def extract_logs(self, archive_path):
         """
         Extract log archive to temporary directory
+        Uses parallel decompression (pbzip2/pigz) when available for speed
         Returns path to extracted directory
         """
         self.temp_dir = tempfile.mkdtemp(prefix='lula_')
 
-        # Detect compression and extract
+        # Detect compression and extract with parallel decompression if available
         if archive_path.endswith('.bz2'):
-            # Use tar with bzip2
-            cmd = ['tar', 'xjf', archive_path, '-C', self.temp_dir]
+            # Try pbzip2 (parallel bzip2) first, fallback to standard bzip2
+            try:
+                cmd = ['tar', '-I', 'pbzip2', '-xf', archive_path, '-C', self.temp_dir]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise Exception()  # Fallback to standard
+            except:
+                cmd = ['tar', 'xjf', archive_path, '-C', self.temp_dir]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+
         elif archive_path.endswith('.gz'):
-            cmd = ['tar', 'xzf', archive_path, '-C', self.temp_dir]
+            # Try pigz (parallel gzip) first, fallback to standard gzip
+            try:
+                cmd = ['tar', '-I', 'pigz', '-xf', archive_path, '-C', self.temp_dir]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise Exception()  # Fallback to standard
+            except:
+                cmd = ['tar', 'xzf', archive_path, '-C', self.temp_dir]
+                result = subprocess.run(cmd, capture_output=True, text=True)
         else:
             cmd = ['tar', 'xf', archive_path, '-C', self.temp_dir]
-
-        result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
             raise Exception(f"Failed to extract archive: {result.stderr}")
@@ -40,12 +56,37 @@ class BaseParser(ABC):
     def find_messages_log(self, directory):
         """
         Find messages.log file in extracted directory
+        Handles compressed files (.log.gz, .log.bz2)
         Returns path to messages.log
         """
+        import gzip
+        import bz2
+
         for root, dirs, files in os.walk(directory):
             for file in files:
+                filepath = os.path.join(root, file)
+
+                # Direct match
                 if file == 'messages.log':
-                    return os.path.join(root, file)
+                    return filepath
+
+                # Compressed with gz
+                elif file.endswith('messages.log.gz') or file == 'messages.log.gz':
+                    decompressed_path = filepath[:-3]  # Remove .gz
+                    with gzip.open(filepath, 'rb') as f_in:
+                        with open(decompressed_path, 'wb') as f_out:
+                            import shutil
+                            shutil.copyfileobj(f_in, f_out)
+                    return decompressed_path
+
+                # Compressed with bz2
+                elif file.endswith('messages.log.bz2') or file == 'messages.log.bz2':
+                    decompressed_path = filepath[:-4]  # Remove .bz2
+                    with bz2.open(filepath, 'rb') as f_in:
+                        with open(decompressed_path, 'wb') as f_out:
+                            import shutil
+                            shutil.copyfileobj(f_in, f_out)
+                    return decompressed_path
 
         raise FileNotFoundError("messages.log not found in archive")
 
