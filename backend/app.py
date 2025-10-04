@@ -211,14 +211,12 @@ def upload_file(current_user, db):
             # Get appropriate parser
             parser = get_parser(parse_mode)
 
-            # Process the file (pass analysis_id and redis_client for PID tracking)
+            # Process the file using standalone parser (in-process, no subprocess)
             result = parser.process(
                 archive_path=filepath,
                 timezone=timezone,
                 begin_date=begin_date if begin_date else None,
-                end_date=end_date if end_date else None,
-                analysis_id=analysis.id,
-                redis_client=redis_client
+                end_date=end_date if end_date else None
             )
 
             processing_time = time.time() - start_time
