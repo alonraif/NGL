@@ -272,21 +272,21 @@ const AdminDashboard = () => {
             <div className="admin-content">
               <h2>System Statistics</h2>
               <div className="stats-grid">
-                <div className="stat-card">
+                <div className="admin-stat-card">
                   <div className="stat-value">{stats.users.total}</div>
                   <div className="stat-label">Total Users</div>
                   <div className="stat-sub">{stats.users.active} active</div>
                 </div>
-                <div className="stat-card">
+                <div className="admin-stat-card">
                   <div className="stat-value">{stats.files.total}</div>
                   <div className="stat-label">Total Files</div>
                   <div className="stat-sub">{stats.files.active} active</div>
                 </div>
-                <div className="stat-card">
+                <div className="admin-stat-card">
                   <div className="stat-value">{stats.analyses.total}</div>
                   <div className="stat-label">Total Analyses</div>
                 </div>
-                <div className="stat-card">
+                <div className="admin-stat-card">
                   <div className="stat-value">{stats.storage.total_mb} MB</div>
                   <div className="stat-label">Storage Used</div>
                   <div className="stat-sub">{(stats.storage.total_mb / 1024).toFixed(2)} GB</div>
