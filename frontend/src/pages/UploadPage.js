@@ -27,7 +27,7 @@ function UploadPage() {
   const [selectedModes, setSelectedModes] = useState([]);
   const [sessionName, setSessionName] = useState('');
   const [zendeskCase, setZendeskCase] = useState('');
-  const [timezone, setTimezone] = useState('US/Eastern');
+  const [timezone, setTimezone] = useState('UTC');
   const [beginDate, setBeginDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
   const [file, setFile] = useState(null);

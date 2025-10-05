@@ -1,8 +1,8 @@
 {
   "test_file": "test_logs/sample.tar.bz2",
-  "timezone": "US/Eastern",
-  "begin_date": "REPLACE_WITH_YOUR_START_DATE",
-  "end_date": "REPLACE_WITH_YOUR_END_DATE",
+  "timezone": "UTC",
+  "begin_date": "2025-09-23 10:00:00",
+  "end_date": "2025-09-23 13:00:00",
   "test_user": {
     "username": "testuser",
     "password": "Test123!",
