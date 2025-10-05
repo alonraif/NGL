@@ -338,6 +338,12 @@ def admin_delete_file(file_id, current_user, db):
                 except Exception as e:
                     return jsonify({'error': f'Failed to delete physical file: {str(e)}'}), 500
 
+            # Update user's storage quota
+            file_owner = db.query(User).filter(User.id == log_file.user_id).first()
+            if file_owner:
+                file_size_mb = log_file.file_size_bytes / (1024 * 1024)
+                file_owner.storage_used_mb = max(0, file_owner.storage_used_mb - file_size_mb)
+
             # Log hard deletion
             deletion_log = DeletionLog(
                 entity_type='log_file',
@@ -417,6 +423,12 @@ def admin_delete_analysis(analysis_id, current_user, db):
         deletion_type = request.args.get('type', 'soft')
 
         if deletion_type == 'hard':
+            # Get associated log file before deleting analysis
+            log_file_id = analysis.log_file_id
+            log_file = None
+            if log_file_id:
+                log_file = db.query(LogFile).filter(LogFile.id == log_file_id).first()
+
             # Log hard deletion
             deletion_log = DeletionLog(
                 entity_type='analysis',
@@ -431,6 +443,41 @@ def admin_delete_analysis(analysis_id, current_user, db):
 
             # Delete from database (cascade will handle results)
             db.delete(analysis)
+
+            # Delete associated log file
+            if log_file:
+                # Delete physical file
+                if os.path.exists(log_file.file_path):
+                    try:
+                        os.remove(log_file.file_path)
+                    except Exception as e:
+                        print(f"Warning: Failed to delete physical file {log_file.file_path}: {e}")
+
+                # Update user's storage quota
+                file_owner = db.query(User).filter(User.id == log_file.user_id).first()
+                if file_owner:
+                    file_size_mb = log_file.file_size_bytes / (1024 * 1024)
+                    file_owner.storage_used_mb = max(0, file_owner.storage_used_mb - file_size_mb)
+
+                # Log file deletion
+                file_deletion_log = DeletionLog(
+                    entity_type='log_file',
+                    entity_id=log_file.id,
+                    entity_name=log_file.original_filename,
+                    deleted_by=current_user.id,
+                    deletion_type='hard',
+                    reason='Associated with hard-deleted analysis',
+                    can_recover=False,
+                    context_data={
+                        'file_path': log_file.file_path,
+                        'file_size_bytes': log_file.file_size_bytes
+                    }
+                )
+                db.add(file_deletion_log)
+
+                # Delete from database
+                db.delete(log_file)
+
             db.commit()
 
             # Log audit
@@ -552,8 +599,14 @@ def bulk_delete_analyses(current_user, db):
             return jsonify({'error': 'No analyses found matching criteria'}), 404
 
         deleted_count = 0
+        deleted_files = set()  # Track unique files to delete
+
         for analysis in analyses:
             if deletion_type == 'hard':
+                # Track log file for deletion
+                if analysis.log_file_id and analysis.log_file_id not in deleted_files:
+                    deleted_files.add(analysis.log_file_id)
+
                 # Log hard deletion
                 deletion_log = DeletionLog(
                     entity_type='analysis',
@@ -587,12 +640,50 @@ def bulk_delete_analyses(current_user, db):
 
             deleted_count += 1
 
+        # Delete associated log files if hard delete
+        if deletion_type == 'hard' and deleted_files:
+            for file_id in deleted_files:
+                log_file = db.query(LogFile).filter(LogFile.id == file_id).first()
+                if log_file:
+                    # Delete physical file
+                    if os.path.exists(log_file.file_path):
+                        try:
+                            os.remove(log_file.file_path)
+                        except Exception as e:
+                            print(f"Warning: Failed to delete physical file {log_file.file_path}: {e}")
+
+                    # Update user's storage quota
+                    file_owner = db.query(User).filter(User.id == log_file.user_id).first()
+                    if file_owner:
+                        file_size_mb = log_file.file_size_bytes / (1024 * 1024)
+                        file_owner.storage_used_mb = max(0, file_owner.storage_used_mb - file_size_mb)
+
+                    # Log file deletion
+                    deletion_log = DeletionLog(
+                        entity_type='log_file',
+                        entity_id=log_file.id,
+                        entity_name=log_file.original_filename,
+                        deleted_by=current_user.id,
+                        deletion_type='hard',
+                        reason='Associated with hard-deleted analyses',
+                        can_recover=False,
+                        context_data={
+                            'file_path': log_file.file_path,
+                            'file_size_bytes': log_file.file_size_bytes
+                        }
+                    )
+                    db.add(deletion_log)
+
+                    # Delete from database
+                    db.delete(log_file)
+
         db.commit()
 
         # Log audit
         log_audit(db, current_user.id, f'bulk_{deletion_type}_delete_analyses', 'analysis', None, {
             'user_id': user_id,
             'count': deleted_count,
+            'files_deleted': len(deleted_files) if deletion_type == 'hard' else 0,
             'deletion_type': deletion_type
         })
 
