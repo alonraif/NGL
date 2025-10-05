@@ -7,6 +7,7 @@ import '../App.css';
 import FileUpload from '../components/FileUpload';
 import Results from '../components/Results';
 import ParserProgress from '../components/ParserProgress';
+import ThemeToggle from '../components/ThemeToggle';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
@@ -322,6 +323,7 @@ function UploadPage() {
                 {user?.storage_used_mb?.toFixed(1) || 0} / {user?.storage_quota_mb || 0} MB
               </span>
             </div>
+            <ThemeToggle />
             <button onClick={() => navigate('/history')} className="btn btn-secondary">
               History
             </button>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
+import ThemeToggle from '../components/ThemeToggle';
 import '../App.css';
 
 const AdminDashboard = () => {
@@ -228,6 +229,7 @@ const AdminDashboard = () => {
               <span className="username">{user?.username}</span>
               <span className="admin-badge">Admin</span>
             </div>
+            <ThemeToggle />
             <button onClick={() => navigate('/')} className="btn btn-secondary">
               Upload
             </button>

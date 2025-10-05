@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useParsing } from '../context/ParsingContext';
 import axios from 'axios';
 import Results from '../components/Results';
+import ThemeToggle from '../components/ThemeToggle';
 import '../App.css';
 
 const AnalysisHistory = () => {
@@ -137,6 +138,7 @@ const AnalysisHistory = () => {
               <h1>Analysis Results</h1>
             </div>
             <div className="header-actions">
+              <ThemeToggle />
               <button
                 onClick={() => downloadLogFile(selectedAnalysis.analysis.id, selectedAnalysis.analysis.filename)}
                 className="btn btn-primary"
@@ -204,6 +206,7 @@ const AnalysisHistory = () => {
               <span className="username">{user?.username}</span>
               {isAdmin() && <span className="admin-badge">Admin</span>}
             </div>
+            <ThemeToggle />
             <button onClick={() => navigate('/')} className="btn btn-secondary">
               Upload
             </button>
