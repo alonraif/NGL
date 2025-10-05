@@ -3,7 +3,7 @@
 NGL - Next Gen LULA Backend
 Modular backend using new parser architecture with database support
 """
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
@@ -462,6 +462,47 @@ def get_analysis(analysis_id, current_user, db):
 
     except Exception as e:
         return jsonify({'error': f'Failed to get analysis: {str(e)}'}), 500
+
+
+@app.route('/api/analyses/<int:analysis_id>/download', methods=['GET'])
+@token_required
+def download_log_file(analysis_id, current_user, db):
+    """Download the log file associated with an analysis"""
+    try:
+        # Get analysis (must belong to user unless admin)
+        query = db.query(Analysis).filter(Analysis.id == analysis_id)
+        if not current_user.is_admin():
+            query = query.filter(Analysis.user_id == current_user.id)
+
+        analysis = query.first()
+        if not analysis:
+            return jsonify({'error': 'Analysis not found'}), 404
+
+        # Get associated log file
+        if not analysis.log_file:
+            return jsonify({'error': 'Log file not found'}), 404
+
+        log_file = analysis.log_file
+
+        # Check if file exists
+        if not os.path.exists(log_file.file_path):
+            return jsonify({'error': 'Physical file not found'}), 404
+
+        # Log the download
+        log_audit(db, current_user.id, 'download_log_file', 'log_file', log_file.id, {
+            'filename': log_file.original_filename,
+            'analysis_id': analysis_id
+        })
+
+        # Send file for download
+        return send_file(
+            log_file.file_path,
+            as_attachment=True,
+            download_name=log_file.original_filename
+        )
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to download file: {str(e)}'}), 500
 
 
 @app.route('/api/analyses/search', methods=['GET'])

@@ -79,6 +79,27 @@ const AnalysisHistory = () => {
     }
   };
 
+  const downloadLogFile = async (analysisId, filename) => {
+    try {
+      const response = await axios.get(`/api/analyses/${analysisId}/download`, {
+        responseType: 'blob'
+      });
+
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download file:', error);
+      alert('Failed to download log file');
+    }
+  };
+
   const formatDate = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleString();
@@ -116,6 +137,12 @@ const AnalysisHistory = () => {
               <h1>Analysis Results</h1>
             </div>
             <div className="header-actions">
+              <button
+                onClick={() => downloadLogFile(selectedAnalysis.analysis.id, selectedAnalysis.analysis.filename)}
+                className="btn btn-primary"
+              >
+                📥 Download Log File
+              </button>
               <button onClick={() => setViewingResult(false)} className="btn btn-secondary">
                 ← Back to History
               </button>
@@ -294,12 +321,21 @@ const AnalysisHistory = () => {
                           : '-'}
                       </td>
                       <td>
-                        <button
-                          onClick={() => viewAnalysis(analysis.id)}
-                          className="btn btn-small"
-                        >
-                          View
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            onClick={() => viewAnalysis(analysis.id)}
+                            className="btn btn-small"
+                          >
+                            View
+                          </button>
+                          <button
+                            onClick={() => downloadLogFile(analysis.id, analysis.filename)}
+                            className="btn btn-small btn-secondary"
+                            title="Download log file"
+                          >
+                            📥
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
