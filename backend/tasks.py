@@ -6,6 +6,7 @@ from database import SessionLocal
 from models import LogFile, Analysis, DeletionLog
 from datetime import datetime, timedelta
 import os
+from storage_service import StorageFactory
 
 
 @celery.task(name='celery_app.cleanup_expired_files')
@@ -114,12 +115,21 @@ def hard_delete_old_soft_deletes():
 
         deleted_count = 0
         for log_file in old_deleted_files:
-            # Delete physical file
-            if os.path.exists(log_file.file_path):
-                try:
-                    os.remove(log_file.file_path)
-                except Exception as e:
-                    print(f"Error deleting file {log_file.file_path}: {e}")
+            # Delete physical file based on storage type
+            try:
+                if log_file.storage_type == 's3':
+                    # Delete from S3
+                    storage_service = StorageFactory.get_storage_service()
+                    if storage_service.get_storage_type() == 's3':
+                        storage_service.delete_file(log_file.file_path)
+                    else:
+                        print(f"Warning: S3 storage not available to delete {log_file.file_path}")
+                else:
+                    # Delete from local storage
+                    if os.path.exists(log_file.file_path):
+                        os.remove(log_file.file_path)
+            except Exception as e:
+                print(f"Error deleting file {log_file.file_path} (storage: {log_file.storage_type}): {e}")
 
             # Log hard deletion
             deletion_log = DeletionLog(
@@ -132,7 +142,8 @@ def hard_delete_old_soft_deletes():
                 context_data={
                     'soft_deleted_at': log_file.deleted_at.isoformat() if log_file.deleted_at else None,
                     'file_path': log_file.file_path,
-                    'file_size_bytes': log_file.file_size_bytes
+                    'file_size_bytes': log_file.file_size_bytes,
+                    'storage_type': log_file.storage_type
                 }
             )
             db.add(deletion_log)

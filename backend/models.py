@@ -101,6 +101,7 @@ class LogFile(Base):
     file_path = Column(String(512), nullable=False)
     file_size_bytes = Column(BigInteger, nullable=False)
     file_hash = Column(String(64))  # SHA256
+    storage_type = Column(String(20), default='local', nullable=False)  # 'local' or 's3'
 
     # Lifecycle management
     retention_days = Column(Integer, default=30, nullable=False)
@@ -325,3 +326,30 @@ class AlertRule(Base):
 
     # Relationships
     user = relationship("User", back_populates="alert_rules")
+
+
+class S3Configuration(Base):
+    __tablename__ = 's3_configurations'
+
+    id = Column(Integer, primary_key=True)
+
+    # AWS Credentials (should be encrypted at application level)
+    aws_access_key_id = Column(String(255), nullable=False)
+    aws_secret_access_key = Column(String(255), nullable=False)
+
+    # S3 Settings
+    bucket_name = Column(String(255), nullable=False)
+    region = Column(String(50), nullable=False)
+
+    # Encryption
+    server_side_encryption = Column(Boolean, default=True, nullable=False)
+
+    # Status
+    is_enabled = Column(Boolean, default=False, nullable=False)
+    last_test_success = Column(Boolean)
+    last_test_at = Column(DateTime(timezone=True))
+    last_test_message = Column(Text)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

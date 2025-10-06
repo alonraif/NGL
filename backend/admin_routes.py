@@ -4,11 +4,12 @@ Admin-only routes for user and parser management
 from flask import Blueprint, request, jsonify
 from sqlalchemy import func
 from database import SessionLocal
-from models import User, Parser, ParserPermission, LogFile, Analysis, DeletionLog
+from models import User, Parser, ParserPermission, LogFile, Analysis, DeletionLog, S3Configuration
 from auth import admin_required, log_audit
 from datetime import datetime
 import os
 import re
+from storage_service import StorageFactory
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -564,6 +565,7 @@ def list_all_analyses(current_user, db):
                 'session_name': a.session_name,
                 'zendesk_case': a.zendesk_case,
                 'filename': a.log_file.original_filename if a.log_file else None,
+                'storage_type': a.log_file.storage_type if a.log_file else 'local',
                 'status': a.status,
                 'created_at': a.created_at.isoformat(),
                 'completed_at': a.completed_at.isoformat() if a.completed_at else None,
@@ -739,3 +741,279 @@ def get_system_stats(current_user, db):
 
     except Exception as e:
         return jsonify({'error': f'Failed to get stats: {str(e)}'}), 500
+
+
+# ============================================================================
+# S3 Configuration Routes
+# ============================================================================
+
+@admin_bp.route('/s3/config', methods=['GET'])
+@admin_required
+def get_s3_config(current_user, db):
+    """Get S3 configuration (admin only) with masked credentials"""
+    try:
+        s3_config = db.query(S3Configuration).first()
+
+        if not s3_config:
+            return jsonify({
+                'configured': False,
+                'config': None
+            }), 200
+
+        # Mask credentials for security
+        masked_access_key = s3_config.aws_access_key_id[:4] + '*' * (len(s3_config.aws_access_key_id) - 4) if len(s3_config.aws_access_key_id) > 4 else '****'
+
+        return jsonify({
+            'configured': True,
+            'config': {
+                'id': s3_config.id,
+                'aws_access_key_id': masked_access_key,
+                'bucket_name': s3_config.bucket_name,
+                'region': s3_config.region,
+                'server_side_encryption': s3_config.server_side_encryption,
+                'is_enabled': s3_config.is_enabled,
+                'last_test_success': s3_config.last_test_success,
+                'last_test_at': s3_config.last_test_at.isoformat() if s3_config.last_test_at else None,
+                'last_test_message': s3_config.last_test_message
+            }
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to get S3 config: {str(e)}'}), 500
+
+
+@admin_bp.route('/s3/config', methods=['PUT'])
+@admin_required
+def update_s3_config(current_user, db):
+    """Update S3 configuration (admin only)"""
+    try:
+        data = request.get_json()
+
+        # Validate required fields
+        required_fields = ['aws_access_key_id', 'aws_secret_access_key', 'bucket_name', 'region']
+        for field in required_fields:
+            if field not in data or not data[field].strip():
+                return jsonify({'error': f'{field} is required'}), 400
+
+        # Get or create S3 configuration
+        s3_config = db.query(S3Configuration).first()
+
+        if s3_config:
+            # Update existing
+            s3_config.aws_access_key_id = data['aws_access_key_id'].strip()
+            s3_config.aws_secret_access_key = data['aws_secret_access_key'].strip()
+            s3_config.bucket_name = data['bucket_name'].strip()
+            s3_config.region = data['region'].strip()
+            s3_config.server_side_encryption = data.get('server_side_encryption', True)
+            s3_config.updated_at = datetime.utcnow()
+        else:
+            # Create new
+            s3_config = S3Configuration(
+                aws_access_key_id=data['aws_access_key_id'].strip(),
+                aws_secret_access_key=data['aws_secret_access_key'].strip(),
+                bucket_name=data['bucket_name'].strip(),
+                region=data['region'].strip(),
+                server_side_encryption=data.get('server_side_encryption', True),
+                is_enabled=False  # Don't enable automatically
+            )
+            db.add(s3_config)
+
+        db.commit()
+        db.refresh(s3_config)
+
+        # Log the update
+        log_audit(db, current_user.id, 'update_s3_config', 's3_configuration', s3_config.id, {
+            'bucket': s3_config.bucket_name,
+            'region': s3_config.region
+        })
+
+        # Mask credentials for response
+        masked_access_key = s3_config.aws_access_key_id[:4] + '*' * (len(s3_config.aws_access_key_id) - 4) if len(s3_config.aws_access_key_id) > 4 else '****'
+
+        return jsonify({
+            'success': True,
+            'message': 'S3 configuration updated successfully',
+            'config': {
+                'id': s3_config.id,
+                'aws_access_key_id': masked_access_key,
+                'bucket_name': s3_config.bucket_name,
+                'region': s3_config.region,
+                'server_side_encryption': s3_config.server_side_encryption,
+                'is_enabled': s3_config.is_enabled
+            }
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': f'Failed to update S3 config: {str(e)}'}), 500
+
+
+@admin_bp.route('/s3/test', methods=['POST'])
+@admin_required
+def test_s3_connection(current_user, db):
+    """Test S3 connection by creating and deleting a test file (admin only)"""
+    try:
+        s3_config = db.query(S3Configuration).first()
+
+        if not s3_config:
+            return jsonify({'error': 'S3 not configured'}), 400
+
+        # Run connection test
+        success, message = StorageFactory.test_s3_connection(s3_config)
+
+        # Update test results
+        s3_config.last_test_success = success
+        s3_config.last_test_at = datetime.utcnow()
+        s3_config.last_test_message = message
+        db.commit()
+
+        # Log the test
+        log_audit(db, current_user.id, 'test_s3_connection', 's3_configuration', s3_config.id, {
+            'success': success,
+            'message': message
+        })
+
+        return jsonify({
+            'success': success,
+            'message': message,
+            'tested_at': s3_config.last_test_at.isoformat()
+        }), 200 if success else 500
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to test S3 connection: {str(e)}'}), 500
+
+
+@admin_bp.route('/s3/enable', methods=['POST'])
+@admin_required
+def enable_s3_storage(current_user, db):
+    """Enable S3 storage (admin only)"""
+    try:
+        s3_config = db.query(S3Configuration).first()
+
+        if not s3_config:
+            return jsonify({'error': 'S3 not configured. Please configure S3 first.'}), 400
+
+        # Test connection before enabling
+        success, message = StorageFactory.test_s3_connection(s3_config)
+
+        if not success:
+            return jsonify({
+                'error': 'Cannot enable S3: connection test failed',
+                'message': message
+            }), 400
+
+        # Enable S3
+        s3_config.is_enabled = True
+        s3_config.last_test_success = True
+        s3_config.last_test_at = datetime.utcnow()
+        s3_config.last_test_message = message
+        db.commit()
+
+        # Log the action
+        log_audit(db, current_user.id, 'enable_s3_storage', 's3_configuration', s3_config.id)
+
+        return jsonify({
+            'success': True,
+            'message': 'S3 storage enabled successfully'
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': f'Failed to enable S3 storage: {str(e)}'}), 500
+
+
+@admin_bp.route('/s3/disable', methods=['POST'])
+@admin_required
+def disable_s3_storage(current_user, db):
+    """Disable S3 storage (admin only) - falls back to local storage"""
+    try:
+        s3_config = db.query(S3Configuration).first()
+
+        if not s3_config:
+            return jsonify({'message': 'S3 not configured'}), 200
+
+        # Disable S3
+        s3_config.is_enabled = False
+        db.commit()
+
+        # Log the action
+        log_audit(db, current_user.id, 'disable_s3_storage', 's3_configuration', s3_config.id)
+
+        return jsonify({
+            'success': True,
+            'message': 'S3 storage disabled. System will use local storage.'
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': f'Failed to disable S3 storage: {str(e)}'}), 500
+
+
+@admin_bp.route('/s3/stats', methods=['GET'])
+@admin_required
+def get_s3_stats(current_user, db):
+    """Get S3 vs Local storage statistics (admin only)"""
+    try:
+        # Count files by storage type
+        s3_files = db.query(LogFile).filter(
+            LogFile.storage_type == 's3',
+            LogFile.is_deleted == False
+        ).count()
+
+        local_files = db.query(LogFile).filter(
+            LogFile.storage_type == 'local',
+            LogFile.is_deleted == False
+        ).count()
+
+        # Calculate storage used by type
+        s3_storage = db.query(LogFile).filter(
+            LogFile.storage_type == 's3',
+            LogFile.is_deleted == False
+        ).with_entities(func.sum(LogFile.file_size_bytes)).scalar() or 0
+
+        local_storage = db.query(LogFile).filter(
+            LogFile.storage_type == 'local',
+            LogFile.is_deleted == False
+        ).with_entities(func.sum(LogFile.file_size_bytes)).scalar() or 0
+
+        total_storage = s3_storage + local_storage
+
+        # Calculate percentages
+        s3_percentage = (s3_storage / total_storage * 100) if total_storage > 0 else 0
+        local_percentage = (local_storage / total_storage * 100) if total_storage > 0 else 0
+
+        # Get S3 config status
+        s3_config = db.query(S3Configuration).first()
+        storage_mode = 's3' if (s3_config and s3_config.is_enabled) else 'local'
+
+        return jsonify({
+            'storage_mode': storage_mode,
+            's3_enabled': s3_config.is_enabled if s3_config else False,
+            'files': {
+                's3': s3_files,
+                'local': local_files,
+                'total': s3_files + local_files
+            },
+            'storage': {
+                's3': {
+                    'bytes': int(s3_storage),
+                    'mb': round(s3_storage / (1024 * 1024), 2),
+                    'gb': round(s3_storage / (1024 * 1024 * 1024), 2),
+                    'percentage': round(s3_percentage, 1)
+                },
+                'local': {
+                    'bytes': int(local_storage),
+                    'mb': round(local_storage / (1024 * 1024), 2),
+                    'gb': round(local_storage / (1024 * 1024 * 1024), 2),
+                    'percentage': round(local_percentage, 1)
+                },
+                'total': {
+                    'bytes': int(total_storage),
+                    'mb': round(total_storage / (1024 * 1024), 2),
+                    'gb': round(total_storage / (1024 * 1024 * 1024), 2)
+                }
+            }
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to get S3 stats: {str(e)}'}), 500

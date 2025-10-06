@@ -3,7 +3,7 @@
 NGL - Next Gen LULA Backend
 Modular backend using new parser architecture with database support
 """
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, redirect
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
@@ -24,6 +24,7 @@ from config import Config
 import hashlib
 import magic
 from rate_limiter import limiter
+from storage_service import StorageFactory
 
 app = Flask(__name__)
 # Restrict CORS to configured origins only
@@ -185,29 +186,55 @@ def upload_file(current_user, db):
         if current_user.storage_used_mb + file_size_mb > current_user.storage_quota_mb:
             return jsonify({'error': 'Storage quota exceeded'}), 400
 
-        # Save uploaded file
+        # Save uploaded file temporarily for validation and parsing
         filename = secure_filename(file.filename)
         timestamp = int(time.time())
         stored_filename = f"{timestamp}_{filename}"
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], stored_filename)
-        file.save(filepath)
+        temp_filepath = os.path.join(app.config['UPLOAD_FOLDER'], stored_filename)
+        file.save(temp_filepath)
 
         # Validate file type using magic bytes
-        if not validate_file_type(filepath):
-            os.remove(filepath)  # Clean up invalid file
+        if not validate_file_type(temp_filepath):
+            os.remove(temp_filepath)  # Clean up invalid file
             return jsonify({'error': 'Invalid file type. File must be a valid compressed archive.'}), 400
 
         # Calculate file hash
-        file_hash = calculate_file_hash(filepath)
+        file_hash = calculate_file_hash(temp_filepath)
+
+        # Get storage service and save file
+        try:
+            storage_service = StorageFactory.get_storage_service()
+            storage_type = storage_service.get_storage_type()
+
+            # Save file to storage (S3 or local)
+            with open(temp_filepath, 'rb') as f:
+                stored_path = storage_service.save_file(f, stored_filename)
+
+            # If using S3, temp file will be used for parsing and deleted later
+            # If using local, stored_path is the same as temp_filepath
+            if storage_type == 's3':
+                # Keep temp file for parsing, will be deleted after analysis
+                filepath = temp_filepath
+            else:
+                # Local storage - use the stored path
+                filepath = stored_path
+
+        except Exception as storage_error:
+            # If storage fails, clean up temp file and try local storage as fallback
+            app.logger.error(f"Storage service failed: {str(storage_error)}, falling back to local storage")
+            storage_type = 'local'
+            filepath = temp_filepath
+            stored_path = temp_filepath
 
         # Create log file record
         log_file = LogFile(
             user_id=current_user.id,
             original_filename=filename,
             stored_filename=stored_filename,
-            file_path=filepath,
+            file_path=stored_path,
             file_size_bytes=file_size,
             file_hash=file_hash,
+            storage_type=storage_type,
             retention_days=int(os.getenv('UPLOAD_RETENTION_DAYS', '30'))
         )
         log_file.expires_at = datetime.utcnow() + timedelta(days=log_file.retention_days)
@@ -285,6 +312,14 @@ def upload_file(current_user, db):
 
             db.commit()
 
+            # Clean up temporary file if using S3
+            if storage_type == 's3' and os.path.exists(temp_filepath) and temp_filepath != stored_path:
+                try:
+                    os.remove(temp_filepath)
+                    app.logger.info(f"Cleaned up temporary file: {temp_filepath}")
+                except Exception as e:
+                    app.logger.warning(f"Failed to clean up temp file {temp_filepath}: {str(e)}")
+
             # Clean up user's current analysis from Redis
             user_analysis_key = f"user:{current_user.id}:current_analysis"
             redis_client.delete(user_analysis_key)
@@ -293,7 +328,8 @@ def upload_file(current_user, db):
             log_audit(db, current_user.id, 'upload_and_parse', 'analysis', analysis.id, {
                 'filename': filename,
                 'parse_mode': parse_mode,
-                'processing_time': processing_time
+                'processing_time': processing_time,
+                'storage_type': storage_type
             })
 
             # Return results
@@ -441,6 +477,7 @@ def get_analyses(current_user, db):
                 'session_name': a.session_name,
                 'zendesk_case': a.zendesk_case,
                 'filename': a.log_file.original_filename if a.log_file else None,
+                'storage_type': a.log_file.storage_type if a.log_file else 'local',
                 'status': a.status,
                 'created_at': a.created_at.isoformat(),
                 'completed_at': a.completed_at.isoformat() if a.completed_at else None,
@@ -478,6 +515,7 @@ def get_analysis(analysis_id, current_user, db):
                 'session_name': analysis.session_name,
                 'zendesk_case': analysis.zendesk_case,
                 'filename': analysis.log_file.original_filename if analysis.log_file else None,
+                'storage_type': analysis.log_file.storage_type if analysis.log_file else 'local',
                 'status': analysis.status,
                 'created_at': analysis.created_at.isoformat(),
                 'completed_at': analysis.completed_at.isoformat() if analysis.completed_at else None,
@@ -515,22 +553,40 @@ def download_log_file(analysis_id, current_user, db):
 
         log_file = analysis.log_file
 
-        # Check if file exists
-        if not os.path.exists(log_file.file_path):
-            return jsonify({'error': 'Physical file not found'}), 404
-
         # Log the download
         log_audit(db, current_user.id, 'download_log_file', 'log_file', log_file.id, {
             'filename': log_file.original_filename,
-            'analysis_id': analysis_id
+            'analysis_id': analysis_id,
+            'storage_type': log_file.storage_type
         })
 
-        # Send file for download
-        return send_file(
-            log_file.file_path,
-            as_attachment=True,
-            download_name=log_file.original_filename
-        )
+        # Handle download based on storage type
+        if log_file.storage_type == 's3':
+            # Get S3 presigned URL and redirect
+            try:
+                storage_service = StorageFactory.get_storage_service()
+                if storage_service.get_storage_type() == 's3':
+                    presigned_url = storage_service.get_file(log_file.file_path)
+                    if presigned_url:
+                        # Redirect to presigned URL
+                        return redirect(presigned_url)
+                    else:
+                        return jsonify({'error': 'Failed to generate download URL'}), 500
+                else:
+                    return jsonify({'error': 'S3 storage not available'}), 503
+            except Exception as e:
+                app.logger.error(f"S3 download error: {str(e)}")
+                return jsonify({'error': 'Failed to generate download URL from S3'}), 500
+        else:
+            # Local storage - check if file exists and send
+            if not os.path.exists(log_file.file_path):
+                return jsonify({'error': 'Physical file not found'}), 404
+
+            return send_file(
+                log_file.file_path,
+                as_attachment=True,
+                download_name=log_file.original_filename
+            )
 
     except Exception as e:
         app.logger.error(f'Failed to download file for analysis {analysis_id}: {str(e)}')
@@ -564,6 +620,7 @@ def search_analyses(current_user, db):
                 'session_name': a.session_name,
                 'zendesk_case': a.zendesk_case,
                 'filename': a.log_file.original_filename if a.log_file else None,
+                'storage_type': a.log_file.storage_type if a.log_file else 'local',
                 'status': a.status,
                 'created_at': a.created_at.isoformat(),
                 'completed_at': a.completed_at.isoformat() if a.completed_at else None,

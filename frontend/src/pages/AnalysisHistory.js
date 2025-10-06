@@ -303,6 +303,7 @@ const AnalysisHistory = () => {
                     <th>Zendesk Case</th>
                     <th>File</th>
                     <th>Parser</th>
+                    <th>Storage</th>
                     <th>Status</th>
                     <th>Created</th>
                     <th>Time</th>
@@ -316,6 +317,18 @@ const AnalysisHistory = () => {
                       <td>{analysis.zendesk_case || '-'}</td>
                       <td>{analysis.filename}</td>
                       <td>{analysis.parse_mode}</td>
+                      <td>
+                        <span style={{
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          background: analysis.storage_type === 's3' ? '#dbeafe' : '#e5e7eb',
+                          color: analysis.storage_type === 's3' ? '#1e40af' : '#374151'
+                        }}>
+                          {analysis.storage_type === 's3' ? '☁️ S3' : '🗄️ Local'}
+                        </span>
+                      </td>
                       <td>{getStatusBadge(analysis.status)}</td>
                       <td>{formatDate(analysis.created_at)}</td>
                       <td>
