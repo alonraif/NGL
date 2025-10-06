@@ -249,7 +249,12 @@ function UploadPage() {
         }
 
         const processingTime = 0;
-        const errorMsg = err.response?.data?.error || 'An error occurred while processing';
+        let errorMsg = err.response?.data?.error || 'An error occurred while processing';
+
+        // Handle rate limiting specifically
+        if (err.response?.status === 429) {
+          errorMsg = 'Rate limit exceeded. Please wait before uploading more files.';
+        }
 
         // Update parser status to failed
         updateParserStatus(jobId, i, 'failed', {

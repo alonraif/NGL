@@ -147,7 +147,7 @@ def calculate_file_hash(filepath):
 
 
 @app.route('/api/upload', methods=['POST'])
-@limiter.limit("10 per hour")
+@limiter.limit("100 per hour")  # Increased for development/testing
 @token_required
 def upload_file(current_user, db):
     """Upload and process log file synchronously (requires authentication)"""
