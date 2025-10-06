@@ -81,6 +81,16 @@ def token_required(f):
             if not user:
                 return jsonify({'error': 'User not found or inactive'}), 401
 
+            # Validate session exists and is not expired
+            token_hash_value = hash_token(token)
+            session = db.query(UserSession).filter(
+                UserSession.token_hash == token_hash_value,
+                UserSession.expires_at > datetime.utcnow()
+            ).first()
+
+            if not session:
+                return jsonify({'error': 'Session expired or invalidated'}), 401
+
             # Add user to kwargs
             kwargs['current_user'] = user
             kwargs['db'] = db
@@ -124,6 +134,16 @@ def admin_required(f):
             user = db.query(User).filter(User.id == payload['user_id'], User.is_active == True).first()
             if not user or not user.is_admin():
                 return jsonify({'error': 'Admin privileges required'}), 403
+
+            # Validate session exists and is not expired
+            token_hash_value = hash_token(token)
+            session = db.query(UserSession).filter(
+                UserSession.token_hash == token_hash_value,
+                UserSession.expires_at > datetime.utcnow()
+            ).first()
+
+            if not session:
+                return jsonify({'error': 'Session expired or invalidated'}), 401
 
             # Add user to kwargs
             kwargs['current_user'] = user

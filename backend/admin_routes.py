@@ -20,15 +20,17 @@ def validate_email(email):
 
 
 def validate_password(password):
-    """Validate password strength"""
-    if len(password) < 8:
-        return False, "Password must be at least 8 characters long"
+    """Validate password strength - requires 12+ chars with uppercase, lowercase, number, and special character"""
+    if len(password) < 12:
+        return False, "Password must be at least 12 characters long"
     if not re.search(r'[A-Z]', password):
         return False, "Password must contain at least one uppercase letter"
     if not re.search(r'[a-z]', password):
         return False, "Password must contain at least one lowercase letter"
     if not re.search(r'[0-9]', password):
         return False, "Password must contain at least one number"
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/~`]', password):
+        return False, "Password must contain at least one special character (!@#$%^&* etc.)"
     return True, None
 
 
@@ -214,7 +216,9 @@ def reset_user_password(user_id, current_user, db):
 
     except Exception as e:
         db.rollback()
-        return jsonify({'error': f'Failed to reset password: {str(e)}'}), 500
+        import logging
+        logging.error(f'Failed to reset password for user {user_id}: {str(e)}')
+        return jsonify({'error': 'An error occurred while resetting password.'}), 500
 
 
 @admin_bp.route('/users/<int:user_id>', methods=['DELETE'])

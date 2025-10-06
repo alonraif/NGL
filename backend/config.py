@@ -17,6 +17,9 @@ class Config:
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)
 
+    # CORS
+    CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(',')
+
     # File uploads
     UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', '/app/uploads')
     TEMP_FOLDER = os.getenv('TEMP_FOLDER', '/app/temp')

@@ -22,9 +22,15 @@ from admin_routes import admin_bp
 from datetime import datetime, timedelta
 from config import Config
 import hashlib
+import magic
+from rate_limiter import limiter
 
 app = Flask(__name__)
-CORS(app)
+# Restrict CORS to configured origins only
+CORS(app, origins=Config.CORS_ORIGINS, supports_credentials=True)
+
+# Initialize rate limiter with app
+limiter.init_app(app)
 
 # Register blueprints
 app.register_blueprint(auth_bp, url_prefix='/api/auth')
@@ -65,6 +71,23 @@ PARSE_MODES = [
 def allowed_file(filename):
     """Check if file extension is allowed"""
     return filename.endswith('.tar.bz2') or filename.endswith('.bz2') or filename.endswith('.tar.gz') or filename.endswith('.gz')
+
+
+def validate_file_type(filepath):
+    """Validate file is actually a compressed archive using magic bytes"""
+    try:
+        mime = magic.from_file(filepath, mime=True)
+        allowed_mimes = [
+            'application/x-bzip2',
+            'application/x-gzip',
+            'application/gzip',
+            'application/x-tar',
+            'application/x-compressed-tar'
+        ]
+        return mime in allowed_mimes
+    except Exception as e:
+        app.logger.error(f"File type validation error: {str(e)}")
+        return False
 
 @app.route('/api/health', methods=['GET'])
 def health():
@@ -123,6 +146,7 @@ def calculate_file_hash(filepath):
 
 
 @app.route('/api/upload', methods=['POST'])
+@limiter.limit("10 per hour")
 @token_required
 def upload_file(current_user, db):
     """Upload and process log file synchronously (requires authentication)"""
@@ -167,6 +191,11 @@ def upload_file(current_user, db):
         stored_filename = f"{timestamp}_{filename}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], stored_filename)
         file.save(filepath)
+
+        # Validate file type using magic bytes
+        if not validate_file_type(filepath):
+            os.remove(filepath)  # Clean up invalid file
+            return jsonify({'error': 'Invalid file type. File must be a valid compressed archive.'}), 400
 
         # Calculate file hash
         file_hash = calculate_file_hash(filepath)
@@ -324,7 +353,7 @@ def upload_file(current_user, db):
     except Exception as e:
         db.rollback()
         app.logger.error(f"Upload error: {str(e)}\n{traceback.format_exc()}")
-        return jsonify({'error': f'Upload error: {str(e)}'}), 500
+        return jsonify({'error': 'An error occurred during file upload. Please try again.'}), 500
 
 
 @app.route('/api/cancel', methods=['POST'])
@@ -391,7 +420,7 @@ def cancel_analysis(current_user, db):
     except Exception as e:
         db.rollback()
         app.logger.error(f"Cancel error: {str(e)}\n{traceback.format_exc()}")
-        return jsonify({'error': f'Cancel error: {str(e)}'}), 500
+        return jsonify({'error': 'An error occurred while cancelling analysis.'}), 500
 
 
 @app.route('/api/analyses', methods=['GET'])
@@ -421,7 +450,8 @@ def get_analyses(current_user, db):
         }), 200
 
     except Exception as e:
-        return jsonify({'error': f'Failed to get analyses: {str(e)}'}), 500
+        app.logger.error(f'Failed to get analyses: {str(e)}')
+        return jsonify({'error': 'An error occurred while retrieving analyses.'}), 500
 
 
 @app.route('/api/analyses/<int:analysis_id>', methods=['GET'])
@@ -461,7 +491,8 @@ def get_analysis(analysis_id, current_user, db):
         }), 200
 
     except Exception as e:
-        return jsonify({'error': f'Failed to get analysis: {str(e)}'}), 500
+        app.logger.error(f'Failed to get analysis {analysis_id}: {str(e)}')
+        return jsonify({'error': 'An error occurred while retrieving analysis.'}), 500
 
 
 @app.route('/api/analyses/<int:analysis_id>/download', methods=['GET'])
@@ -502,7 +533,8 @@ def download_log_file(analysis_id, current_user, db):
         )
 
     except Exception as e:
-        return jsonify({'error': f'Failed to download file: {str(e)}'}), 500
+        app.logger.error(f'Failed to download file for analysis {analysis_id}: {str(e)}')
+        return jsonify({'error': 'An error occurred while downloading file.'}), 500
 
 
 @app.route('/api/analyses/search', methods=['GET'])
@@ -516,11 +548,13 @@ def search_analyses(current_user, db):
             return jsonify({'analyses': []}), 200
 
         # Search by session_name or zendesk_case (case-insensitive partial match)
+        # Using string concatenation instead of f-string to prevent SQL injection
+        search_pattern = '%' + search_query + '%'
         analyses = db.query(Analysis).filter(
             Analysis.user_id == current_user.id,
             Analysis.is_deleted == False,
-            (Analysis.session_name.ilike(f'%{search_query}%') |
-             Analysis.zendesk_case.ilike(f'%{search_query}%'))
+            (Analysis.session_name.ilike(search_pattern) |
+             Analysis.zendesk_case.ilike(search_pattern))
         ).order_by(Analysis.created_at.desc()).all()
 
         return jsonify({
@@ -539,7 +573,8 @@ def search_analyses(current_user, db):
         }), 200
 
     except Exception as e:
-        return jsonify({'error': f'Failed to search analyses: {str(e)}'}), 500
+        app.logger.error(f'Failed to search analyses: {str(e)}')
+        return jsonify({'error': 'An error occurred while searching analyses.'}), 500
 
 
 def init_parsers_in_db():

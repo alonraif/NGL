@@ -4,9 +4,9 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      - POSTGRES_DB=ngl_db
-      - POSTGRES_USER=ngl_user
-      - POSTGRES_PASSWORD=ngl_password
+      - POSTGRES_DB=${POSTGRES_DB:-ngl_db}
+      - POSTGRES_USER=${POSTGRES_USER:-ngl_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-ngl_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -46,12 +46,14 @@ services:
       - ./test_config.json:/app/test_config.json:ro
       - ./test_logs:/app/test_logs:ro
     environment:
-      - FLASK_ENV=development
+      - FLASK_ENV=${FLASK_ENV:-development}
+      - FLASK_DEBUG=${FLASK_DEBUG:-1}
       - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql://ngl_user:ngl_password@postgres:5432/ngl_db
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ngl_user}:${POSTGRES_PASSWORD:-ngl_password}@postgres:5432/${POSTGRES_DB:-ngl_db}
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-secret-key-change-in-production
-      - UPLOAD_RETENTION_DAYS=30
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production}
+      - UPLOAD_RETENTION_DAYS=${UPLOAD_RETENTION_DAYS:-30}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,7 +73,7 @@ services:
       - temp:/app/temp
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql://ngl_user:ngl_password@postgres:5432/ngl_db
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ngl_user}:${POSTGRES_PASSWORD:-ngl_password}@postgres:5432/${POSTGRES_DB:-ngl_db}
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       postgres:
@@ -90,7 +92,7 @@ services:
       - ./backend:/app
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql://ngl_user:ngl_password@postgres:5432/ngl_db
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ngl_user}:${POSTGRES_PASSWORD:-ngl_password}@postgres:5432/${POSTGRES_DB:-ngl_db}
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       postgres:

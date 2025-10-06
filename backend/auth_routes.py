@@ -7,6 +7,7 @@ from models import User, Session as UserSession
 from auth import create_access_token, token_required, log_audit, hash_token, admin_required
 from datetime import datetime, timedelta
 import re
+from rate_limiter import limiter
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -18,15 +19,17 @@ def validate_email(email):
 
 
 def validate_password(password):
-    """Validate password strength"""
-    if len(password) < 8:
-        return False, "Password must be at least 8 characters long"
+    """Validate password strength - requires 12+ chars with uppercase, lowercase, number, and special character"""
+    if len(password) < 12:
+        return False, "Password must be at least 12 characters long"
     if not re.search(r'[A-Z]', password):
         return False, "Password must contain at least one uppercase letter"
     if not re.search(r'[a-z]', password):
         return False, "Password must contain at least one lowercase letter"
     if not re.search(r'[0-9]', password):
         return False, "Password must contain at least one number"
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/~`]', password):
+        return False, "Password must contain at least one special character (!@#$%^&* etc.)"
     return True, None
 
 
@@ -39,9 +42,11 @@ def register():
 
 
 @auth_bp.route('/login', methods=['POST'])
+@limiter.limit("5 per minute")
 def login():
     """User login"""
     db = SessionLocal()
+    username = None  # Initialize to avoid UnboundLocalError
     try:
         data = request.get_json()
 
@@ -98,7 +103,10 @@ def login():
 
     except Exception as e:
         db.rollback()
-        return jsonify({'error': f'Login failed: {str(e)}'}), 500
+        # Log detailed error server-side but return generic message to user
+        import logging
+        logging.error(f'Login error for user {username}: {str(e)}')
+        return jsonify({'error': 'An error occurred during login. Please try again.'}), 500
     finally:
         db.close()
 
@@ -143,7 +151,9 @@ def logout(current_user, db):
 
     except Exception as e:
         db.rollback()
-        return jsonify({'error': f'Logout failed: {str(e)}'}), 500
+        import logging
+        logging.error(f'Logout error for user {current_user.id}: {str(e)}')
+        return jsonify({'error': 'An error occurred during logout.'}), 500
 
 
 @auth_bp.route('/change-password', methods=['POST'])
@@ -179,4 +189,6 @@ def change_password(current_user, db):
 
     except Exception as e:
         db.rollback()
-        return jsonify({'error': f'Password change failed: {str(e)}'}), 500
+        import logging
+        logging.error(f'Password change error for user {current_user.id}: {str(e)}')
+        return jsonify({'error': 'An error occurred while changing password.'}), 500

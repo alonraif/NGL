@@ -2,13 +2,14 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Install system dependencies including performance tools
+# Install system dependencies including performance tools and libmagic for file validation
 RUN apt-get update && apt-get install -y \
     tar \
     gzip \
     bzip2 \
     pbzip2 \
     pigz \
+    libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
