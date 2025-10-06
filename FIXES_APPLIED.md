@@ -1,6 +1,77 @@
-# Fixes Applied - v3.0.0
+# Fixes Applied
 
-## Issue: "No bandwidth data available"
+## Issue: Files Saved as 0 Bytes / "untar failed with: ex failed with: 2:"
+
+**Date**: October 6, 2025
+**Severity**: Critical - File uploads corrupted
+**Status**: ✅ **FIXED**
+
+### Root Cause
+
+A bug in the local storage implementation caused uploaded files to be saved as 0 bytes:
+
+1. **Double save operation**: Code saved file to temp location, then tried to save it again to the same path
+2. **Self-overwrite**: Opening the same file for read and write simultaneously corrupted the file
+3. **Result**: All uploaded files became 0 bytes, causing tar extraction to fail
+
+### Code Issue
+
+In `backend/app.py` (lines 189-220):
+
+```python
+# Save uploaded file
+temp_filepath = os.path.join(app.config['UPLOAD_FOLDER'], stored_filename)
+file.save(temp_filepath)  # First save
+
+# Then tried to save again (BUG!)
+with open(temp_filepath, 'rb') as f:
+    stored_path = storage_service.save_file(f, stored_filename)
+    # For local storage, this writes to the SAME file while reading it
+    # Result: 0-byte corrupted file
+```
+
+### Solution
+
+Modified `backend/app.py` to skip redundant save for local storage:
+
+```python
+if storage_type == 's3':
+    # S3: Upload to S3, keep temp file for parsing
+    with open(temp_filepath, 'rb') as f:
+        stored_path = storage_service.save_file(f, stored_filename)
+    filepath = temp_filepath
+else:
+    # Local: File already saved, use it directly
+    stored_path = temp_filepath
+    filepath = temp_filepath
+```
+
+### Impact
+
+**Before fix:**
+- ❌ All uploads after storage refactoring = 0 bytes
+- ❌ Tar extraction fails: "The untar failed with: ex failed with: 2:"
+- ❌ Database shows correct size, but disk file is empty
+
+**After fix:**
+- ✅ Files save with correct size
+- ✅ Tar extraction works
+- ✅ All parsing modes functional
+
+### Testing
+
+```bash
+# Files before fix (0 bytes)
+-rw-r--r-- 1 root root    0 Oct  6 12:52 1759755158_80C208-33096_test.bz2
+
+# Files after fix (correct size)
+-rw-r--r-- 1 root root 3.8M Oct  6 12:57 1759755423_80C208-33096_test.bz2
+-rw-r--r-- 1 root root  71M Oct  6 12:57 1759755457_sample.tar.bz2
+```
+
+---
+
+## Issue: "No bandwidth data available" - v3.0.0
 
 **Date**: October 2, 2025
 **Severity**: Critical - Parsing completely broken

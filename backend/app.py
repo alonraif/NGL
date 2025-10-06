@@ -206,18 +206,16 @@ def upload_file(current_user, db):
             storage_service = StorageFactory.get_storage_service()
             storage_type = storage_service.get_storage_type()
 
-            # Save file to storage (S3 or local)
-            with open(temp_filepath, 'rb') as f:
-                stored_path = storage_service.save_file(f, stored_filename)
-
-            # If using S3, temp file will be used for parsing and deleted later
-            # If using local, stored_path is the same as temp_filepath
+            # Save file to storage
             if storage_type == 's3':
-                # Keep temp file for parsing, will be deleted after analysis
-                filepath = temp_filepath
+                # Upload to S3, keep temp file for parsing
+                with open(temp_filepath, 'rb') as f:
+                    stored_path = storage_service.save_file(f, stored_filename)
+                filepath = temp_filepath  # Use temp file for parsing
             else:
-                # Local storage - use the stored path
-                filepath = stored_path
+                # Local storage - file is already saved at temp_filepath
+                stored_path = temp_filepath
+                filepath = temp_filepath
 
         except Exception as storage_error:
             # If storage fails, clean up temp file and try local storage as fallback

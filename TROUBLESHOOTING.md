@@ -71,6 +71,31 @@ client_body_timeout 300s;
    tar -cjf logs.tar.bz2 logs/
    ```
 
+### Uploaded Files Are 0 Bytes / "untar failed with: ex failed with: 2:" ✅ FIXED
+
+**Error:** `The untar failed with: ex failed with: 2:`
+
+**Symptoms:**
+- Files upload successfully but parsing fails
+- Checking `/app/uploads/` shows 0-byte files
+- Database shows correct file size but disk file is empty
+
+**Cause:** A bug in the local storage implementation was causing files to overwrite themselves during the save process. The code was:
+1. Saving uploaded file to temporary location
+2. Reopening the same file
+3. Attempting to save it again to the same path (overwriting while reading)
+4. Result: 0-byte corrupted files
+
+**Solution:** Fixed in app.py - local storage now skips the redundant save operation since the file is already in the correct location. Only S3 uploads perform the additional save step.
+
+**Status:** ✅ Fixed as of October 6, 2025
+
+If you still see this error:
+```bash
+# Restart backend to get latest code
+docker-compose restart backend
+```
+
 ## Processing Issues
 
 ### Timezone Comparison Error ✅ FIXED
