@@ -38,7 +38,10 @@ function ModemBandwidthChart({ data }) {
               interval={Math.floor(data.aggregated.length / 10) || 1}
               tick={{ fontSize: 11 }}
             />
-            <YAxis label={{ value: 'Bandwidth (Kbps)', angle: -90, position: 'insideLeft' }} />
+            <YAxis
+              label={{ value: 'Bandwidth (Kbps)', angle: -90, position: 'insideLeft' }}
+              domain={[0, 'auto']}
+            />
             <Tooltip />
             <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
             <Area
