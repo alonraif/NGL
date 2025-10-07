@@ -388,6 +388,48 @@
   height: 400px;
 }
 
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 30px;
+  margin-bottom: 15px;
+}
+
+.chart-header h3 {
+  margin: 0;
+}
+
+.chart-header-sm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.chart-header-sm h5 {
+  margin: 0;
+}
+
+.copy-chart-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.visualization-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 15px;
+}
+
+.visualization-content {
+  position: relative;
+}
+
 .table-container {
   overflow-x: auto;
   margin-top: 20px;

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   LineChart,
   Line,
@@ -12,14 +12,17 @@ import {
   ResponsiveContainer,
   Cell
 } from 'recharts';
+import CopyChartButton from './CopyChartButton';
 
 const ModemGradingChart = ({ data }) => {
   const [selectedModem, setSelectedModem] = useState('all');
+  const timelineRef = useRef(null);
+  const qualityRef = useRef(null);
 
   // Process data for visualization
-  const { modemStats, serviceTimeline, qualityData } = useMemo(() => {
+  const { modemStats, qualityData, timelineByModem } = useMemo(() => {
     if (!data || !data.modems || data.modems.length === 0) {
-      return { modemStats: [], serviceTimeline: [], qualityData: [] };
+      return { modemStats: [], qualityData: [], timelineByModem: {} };
     }
 
     const stats = data.modems.map(modem => {
@@ -53,18 +56,18 @@ const ModemGradingChart = ({ data }) => {
     });
 
     // Create timeline data for service changes
-    const timeline = [];
+    const timelineByModemMap = {};
     data.modems.forEach(modem => {
-      modem.service_changes.forEach(change => {
-        timeline.push({
-          timestamp: change.timestamp,
-          modem_id: modem.modem_id,
-          service_level: change.service_level,
-          service_value: change.service_level === 'Full' ? 1 : 0
-        });
-      });
+      const modemKey = modem.modem_id.toString();
+      const entries = (modem.service_changes || []).map(change => ({
+        timestamp: change.timestamp,
+        modem_id: modem.modem_id,
+        service_level: change.service_level,
+        service_value: change.service_level === 'Full' ? 1 : 0
+      }));
+      entries.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      timelineByModemMap[modemKey] = entries;
     });
-    timeline.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
     // Create quality metrics data
     const quality = [];
@@ -81,19 +84,68 @@ const ModemGradingChart = ({ data }) => {
     });
     quality.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
-    return { modemStats: stats, serviceTimeline: timeline, qualityData: quality };
+    return {
+      modemStats: stats,
+      qualityData: quality,
+      timelineByModem: timelineByModemMap
+    };
   }, [data]);
 
   // Filter data by selected modem
-  const filteredTimeline = useMemo(() => {
-    if (selectedModem === 'all') return serviceTimeline;
-    return serviceTimeline.filter(t => t.modem_id === parseInt(selectedModem));
-  }, [serviceTimeline, selectedModem]);
-
   const filteredQuality = useMemo(() => {
     if (selectedModem === 'all') return qualityData;
     return qualityData.filter(q => q.modem_id === parseInt(selectedModem));
   }, [qualityData, selectedModem]);
+
+  const modemStatsById = useMemo(() => {
+    const map = new Map();
+    modemStats.forEach(stat => {
+      map.set(stat.modem_id.toString(), stat);
+    });
+    return map;
+  }, [modemStats]);
+
+  const timelinePanels = useMemo(() => {
+    if (!timelineByModem) return [];
+
+    const buildPanel = modemKey => {
+      const entries = timelineByModem[modemKey] || [];
+      const stat = modemStatsById.get(modemKey);
+      return {
+        modemId: modemKey,
+        data: entries,
+        currentService: stat ? stat.current_service : 'Unknown'
+      };
+    };
+
+    if (selectedModem === 'all') {
+      const sortedKeys = Object.keys(timelineByModem).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+      );
+      return sortedKeys.map(buildPanel);
+    }
+
+    const key = selectedModem.toString();
+    return [buildPanel(key)];
+  }, [timelineByModem, selectedModem, modemStatsById]);
+
+  const renderServiceDot = (props) => {
+    const { cx, cy, payload } = props;
+    if (typeof cx !== 'number' || typeof cy !== 'number') {
+      return null;
+    }
+    const isFull = payload?.service_level === 'Full';
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={4}
+        fill={isFull ? '#059669' : '#dc2626'}
+        stroke="#ffffff"
+        strokeWidth={1.5}
+      />
+    );
+  };
 
   if (!data || !data.modems || data.modems.length === 0) {
     return (
@@ -207,56 +259,129 @@ const ModemGradingChart = ({ data }) => {
         boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
         marginBottom: '30px'
       }}>
-        <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#333' }}>
-          Service Level Timeline
-        </h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={filteredTimeline}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis
-              dataKey="timestamp"
-              tick={{ fontSize: 11 }}
-              angle={-45}
-              textAnchor="end"
-              height={100}
-              interval={Math.floor(filteredTimeline.length / 10) || 1}
-            />
-            <YAxis
-              domain={[0, 1]}
-              ticks={[0, 1]}
-              tickFormatter={(value) => value === 1 ? 'Full' : 'Limited'}
-            />
-            <Tooltip
-              content={({ active, payload }) => {
-                if (active && payload && payload.length) {
-                  const data = payload[0].payload;
-                  return (
-                    <div style={{
-                      background: 'white',
-                      padding: '10px',
-                      border: '1px solid #ddd',
-                      borderRadius: '8px'
-                    }}>
-                      <div><strong>Modem:</strong> {data.modem_id}</div>
-                      <div><strong>Service:</strong> {data.service_level}</div>
-                      <div><strong>Time:</strong> {data.timestamp}</div>
+        <div className="chart-header" style={{ marginTop: 0, marginBottom: '20px' }}>
+          <h3>Service Level Timeline</h3>
+          <CopyChartButton targetRef={timelineRef} fileName={selectedModem === 'all' ? 'modem-service-timeline.png' : `modem-${selectedModem}-timeline.png`} />
+        </div>
+        <div ref={timelineRef}>
+        {timelinePanels.length === 0 || timelinePanels.every(panel => panel.data.length === 0) ? (
+          <div style={{
+            padding: '30px',
+            textAlign: 'center',
+            color: '#64748b',
+            background: '#f8fafc',
+            borderRadius: '8px'
+          }}>
+            No service level transitions recorded
+          </div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: selectedModem === 'all'
+              ? 'repeat(auto-fit, minmax(280px, 1fr))'
+              : '1fr',
+            gap: '20px'
+          }}>
+            {timelinePanels.map(panel => {
+              const chartHeight = selectedModem === 'all' ? 200 : 280;
+              const statusColor = panel.currentService === 'Full' ? '#059669' : '#dc2626';
+              const chartData = panel.data;
+              const xInterval = Math.floor((chartData.length || 1) / (selectedModem === 'all' ? 6 : 10)) || 1;
+
+              return (
+                <div
+                  key={panel.modemId}
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    padding: '16px',
+                    background: '#ffffff'
+                  }}
+                >
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '12px'
+                  }}>
+                    <div style={{ fontWeight: 600, color: '#1f2937' }}>
+                      Modem {panel.modemId}
                     </div>
-                  );
-                }
-                return null;
-              }}
-            />
-            <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
-            <Line
-              type="stepAfter"
-              dataKey="service_value"
-              stroke="#2563eb"
-              strokeWidth={3}
-              dot={{ r: 5, fill: '#2563eb' }}
-              name="Service Level"
-            />
-          </LineChart>
-        </ResponsiveContainer>
+                    <span style={{
+                      background: statusColor,
+                      color: '#fff',
+                      padding: '4px 12px',
+                      borderRadius: '999px',
+                      fontSize: '12px',
+                      fontWeight: 600
+                    }}>
+                      {panel.currentService}
+                    </span>
+                  </div>
+                  {chartData.length === 0 ? (
+                    <div style={{
+                      padding: '30px 10px',
+                      textAlign: 'center',
+                      color: '#94a3b8'
+                    }}>
+                      No service change events for this modem
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={chartHeight}>
+                      <LineChart data={chartData} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis
+                          dataKey="timestamp"
+                          tick={{ fontSize: 11 }}
+                          angle={-45}
+                          textAnchor="end"
+                          height={100}
+                          interval={xInterval}
+                        />
+                        <YAxis
+                          domain={[-0.2, 1.2]}
+                          ticks={[0, 1]}
+                          tickFormatter={(value) => value === 1 ? 'Full' : 'Limited'}
+                          tick={{ fontSize: 11, fontWeight: 600 }}
+                        />
+                        <Tooltip
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const point = payload[0].payload;
+                              return (
+                                <div style={{
+                                  background: 'white',
+                                  padding: '10px',
+                                  border: '1px solid #e2e8f0',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 2px 6px rgba(15, 23, 42, 0.08)'
+                                }}>
+                                  <div><strong>Service:</strong> {point.service_level}</div>
+                                  <div><strong>Time:</strong> {point.timestamp}</div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Line
+                          type="stepAfter"
+                          dataKey="service_value"
+                          stroke="#2563eb"
+                          strokeWidth={2.5}
+                          dot={renderServiceDot}
+                          activeDot={{ r: 6, stroke: '#2563eb', strokeWidth: 2 }}
+                          name="Service Level"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        </div>
       </div>
 
       {/* Quality Metrics Chart */}
@@ -267,9 +392,11 @@ const ModemGradingChart = ({ data }) => {
         boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
         marginBottom: '30px'
       }}>
-        <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#333' }}>
-          Quality Metrics Over Time
-        </h3>
+        <div className="chart-header" style={{ marginTop: 0, marginBottom: '20px' }}>
+          <h3>Quality Metrics Over Time</h3>
+          <CopyChartButton targetRef={qualityRef} fileName={selectedModem === 'all' ? 'modem-quality.png' : `modem-${selectedModem}-quality.png`} />
+        </div>
+        <div ref={qualityRef}>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={filteredQuality.slice(0, 50)}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -313,6 +440,7 @@ const ModemGradingChart = ({ data }) => {
             <Bar dataKey="metric2" fill="#d97706" name="Metric 2" />
           </BarChart>
         </ResponsiveContainer>
+        </div>
         {filteredQuality.length > 50 && (
           <div style={{ textAlign: 'center', marginTop: '10px', color: '#666', fontSize: '14px' }}>
             Showing first 50 of {filteredQuality.length} quality measurements

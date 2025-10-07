@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   LineChart,
   Line,
@@ -10,9 +10,11 @@ import {
   ResponsiveContainer,
   ReferenceLine
 } from 'recharts';
+import CopyChartButton from './CopyChartButton';
 
 const MemoryChart = ({ data }) => {
   const [selectedComponent, setSelectedComponent] = useState('all');
+  const chartRef = useRef(null);
 
   // Process data to organize by component
   const { chartData, components, stats } = useMemo(() => {
@@ -219,9 +221,11 @@ const MemoryChart = ({ data }) => {
         borderRadius: '12px',
         boxShadow: '0 2px 10px rgba(0,0,0,0.08)'
       }}>
-        <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#333' }}>
-          Memory Usage Over Time
-        </h3>
+        <div className="chart-header" style={{ marginTop: 0, marginBottom: '20px' }}>
+          <h3>Memory Usage Over Time</h3>
+          <CopyChartButton targetRef={chartRef} fileName="memory-usage.png" />
+        </div>
+        <div ref={chartRef}>
         <ResponsiveContainer width="100%" height={400}>
           <LineChart data={filteredData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -270,6 +274,7 @@ const MemoryChart = ({ data }) => {
             ))}
           </LineChart>
         </ResponsiveContainer>
+        </div>
       </div>
 
       {/* Data Table */}

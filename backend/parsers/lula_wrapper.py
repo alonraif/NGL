@@ -364,6 +364,38 @@ class ModemStatsParser(LulaWrapperParser):
                             'high': float(match.group(2)),
                             'avg': float(match.group(3))
                         }
+                elif 'Extrapolated Up Delay' in line:
+                    match = re.search(r'\(L/H/A\): ([\d.]+) / ([\d.]+) / ([\d.]+)', line)
+                    if match:
+                        current_modem['stats']['up_delay'] = {
+                            'low': float(match.group(1)),
+                            'high': float(match.group(2)),
+                            'avg': float(match.group(3))
+                        }
+                elif 'Shortest Round Trip Delay' in line:
+                    match = re.search(r'\(L/H/A\): ([\d.]+) / ([\d.]+) / ([\d.]+)', line)
+                    if match:
+                        current_modem['stats']['shortest_rtt'] = {
+                            'low': float(match.group(1)),
+                            'high': float(match.group(2)),
+                            'avg': float(match.group(3))
+                        }
+                elif 'Smooth Round Trip' in line and 'Minimum' not in line:
+                    match = re.search(r'\(L/H/A\): ([\d.]+) / ([\d.]+) / ([\d.]+)', line)
+                    if match:
+                        current_modem['stats']['smooth_rtt'] = {
+                            'low': float(match.group(1)),
+                            'high': float(match.group(2)),
+                            'avg': float(match.group(3))
+                        }
+                elif 'Minimum Smooth Round Trip' in line:
+                    match = re.search(r'\(L/H/A\): ([\d.]+) / ([\d.]+) / ([\d.]+)', line)
+                    if match:
+                        current_modem['stats']['min_rtt'] = {
+                            'low': float(match.group(1)),
+                            'high': float(match.group(2)),
+                            'avg': float(match.group(3))
+                        }
 
         if current_modem:
             modems.append(current_modem)

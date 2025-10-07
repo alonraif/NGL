@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   LineChart,
   Line,
@@ -11,8 +11,13 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import CopyChartButton from './CopyChartButton';
 
 function ModemBandwidthChart({ data }) {
+  const aggregatedRef = useRef(null);
+  const bandwidthRefs = useRef({});
+  const rttRefs = useRef({});
+
   if (!data || !data.modems || Object.keys(data.modems).length === 0) {
     return <div>No modem bandwidth data available</div>;
   }
@@ -23,10 +28,11 @@ function ModemBandwidthChart({ data }) {
   return (
     <div>
       {/* Aggregated Total Bandwidth Chart */}
-      <h3 style={{ marginBottom: '15px', fontSize: '1.3rem' }}>
-        Total Bandwidth (All Modems Aggregated)
-      </h3>
-      <div className="chart-container" style={{ height: '400px', marginBottom: '40px' }}>
+      <div className="chart-header" style={{ marginBottom: '15px' }}>
+        <h3>Total Bandwidth (All Modems Aggregated)</h3>
+        <CopyChartButton targetRef={aggregatedRef} fileName="modem-bandwidth-aggregated.png" />
+      </div>
+      <div ref={aggregatedRef} className="chart-container" style={{ height: '400px', marginBottom: '40px' }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data.aggregated}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -65,6 +71,8 @@ function ModemBandwidthChart({ data }) {
       {modemIds.map((modemId, idx) => {
         const modemData = data.modems[modemId];
         const color = colors[idx % colors.length];
+        const bandwidthRef = bandwidthRefs.current[modemId] || (bandwidthRefs.current[modemId] = React.createRef());
+        const rttRef = rttRefs.current[modemId] || (rttRefs.current[modemId] = React.createRef());
 
         return (
           <div key={modemId} style={{ marginBottom: '50px' }}>
@@ -87,8 +95,11 @@ function ModemBandwidthChart({ data }) {
             }}>
               {/* Bandwidth Chart */}
               <div>
-                <h5 style={{ marginBottom: '10px', color: '#555' }}>Bandwidth Metrics</h5>
-                <div className="chart-container" style={{ height: '350px' }}>
+                <div className="chart-header chart-header-sm">
+                  <h5>Bandwidth Metrics</h5>
+                  <CopyChartButton targetRef={bandwidthRef} fileName={`modem-${modemId}-bandwidth.png`} />
+                </div>
+                <div ref={bandwidthRef} className="chart-container" style={{ height: '350px' }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={modemData}>
                       <CartesianGrid strokeDasharray="3 3" />
@@ -127,8 +138,11 @@ function ModemBandwidthChart({ data }) {
 
               {/* RTT Chart */}
               <div>
-                <h5 style={{ marginBottom: '10px', color: '#555' }}>Round Trip Time</h5>
-                <div className="chart-container" style={{ height: '350px' }}>
+                <div className="chart-header chart-header-sm">
+                  <h5>Round Trip Time</h5>
+                  <CopyChartButton targetRef={rttRef} fileName={`modem-${modemId}-rtt.png`} />
+                </div>
+                <div ref={rttRef} className="chart-container" style={{ height: '350px' }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={modemData}>
                       <CartesianGrid strokeDasharray="3 3" />

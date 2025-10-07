@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   XAxis,
   YAxis,
@@ -9,8 +9,11 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
+import CopyChartButton from './CopyChartButton';
 
 function BandwidthChart({ data, mode }) {
+  const chartRef = useRef(null);
+
   // Check if data is valid array
   if (!data || !Array.isArray(data) || data.length === 0) {
     return <div>No bandwidth data available</div>;
@@ -47,6 +50,19 @@ function BandwidthChart({ data, mode }) {
     };
   });
 
+  const title =
+    mode === 'bw'
+      ? 'Stream Bandwidth Over Time'
+      : mode === 'md-bw'
+        ? 'Modem Bandwidth Over Time'
+        : 'Data Bridge Bandwidth Over Time';
+  const fileName =
+    mode === 'bw'
+      ? 'stream-bandwidth.png'
+      : mode === 'md-bw'
+        ? 'modem-bandwidth.png'
+        : 'databridge-bandwidth.png';
+
   return (
     <div>
       <div className="stats-grid">
@@ -64,12 +80,11 @@ function BandwidthChart({ data, mode }) {
         ))}
       </div>
 
-      <h3 style={{ marginTop: '30px', marginBottom: '15px' }}>
-        {mode === 'bw' ? 'Stream Bandwidth Over Time' :
-         mode === 'md-bw' ? 'Modem Bandwidth Over Time' :
-         'Data Bridge Bandwidth Over Time'}
-      </h3>
-      <div className="chart-container" style={{ height: '500px' }}>
+      <div className="chart-header">
+        <h3>{title}</h3>
+        <CopyChartButton targetRef={chartRef} fileName={fileName} />
+      </div>
+      <div ref={chartRef} className="chart-container" style={{ height: '500px' }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data}>
             <CartesianGrid strokeDasharray="3 3" />

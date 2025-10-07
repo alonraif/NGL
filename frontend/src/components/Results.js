@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import ModemStats from './ModemStats';
 import BandwidthChart from './BandwidthChart';
 import ModemBandwidthChart from './ModemBandwidthChart';
@@ -6,10 +6,27 @@ import SessionsTable from './SessionsTable';
 import MemoryChart from './MemoryChart';
 import ModemGradingChart from './ModemGradingChart';
 import RawOutput from './RawOutput';
+import CopyChartButton from './CopyChartButton';
+
+const MODES_WITH_VISUALIZATION = new Set([
+  'md',
+  'md-bw',
+  'md-db-bw',
+  'bw',
+  'sessions',
+  'memory',
+  'grading'
+]);
+
+const sanitizeForFile = (value) => {
+  if (!value) return 'visualization';
+  return value.toString().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'visualization';
+};
 
 function Results({ results }) {
   const [activeParser, setActiveParser] = useState(0); // Index of selected parser
   const [activeTab, setActiveTab] = useState('visualization');
+  const visualizationRef = useRef(null);
 
   if (!results || results.length === 0) {
     return null;
@@ -57,6 +74,19 @@ function Results({ results }) {
       );
     }
   };
+
+  const visualizationContent = activeTab === 'visualization' ? renderVisualization() : null;
+
+  const parserPart = sanitizeForFile(currentResult.parse_mode);
+  const filePart = currentResult.filename ? sanitizeForFile(currentResult.filename) : null;
+  const copyAllFileName = filePart
+    ? `${filePart}-${parserPart}-visualization.png`
+    : `${parserPart}-visualization.png`;
+
+  const showCopyAllButton =
+    activeTab === 'visualization' &&
+    MODES_WITH_VISUALIZATION.has(currentResult.parse_mode) &&
+    !!currentResult.parsed_data;
 
   return (
     <div className="results-section">
@@ -119,7 +149,22 @@ function Results({ results }) {
         </div>
 
         <div className="tab-content">
-          {activeTab === 'visualization' && renderVisualization()}
+          {activeTab === 'visualization' && (
+            <>
+              {showCopyAllButton && (
+                <div className="visualization-toolbar">
+                  <CopyChartButton
+                    targetRef={visualizationRef}
+                    idleLabel="Copy All"
+                    fileName={copyAllFileName}
+                  />
+                </div>
+              )}
+              <div ref={visualizationRef} className="visualization-content">
+                {visualizationContent}
+              </div>
+            </>
+          )}
           {activeTab === 'raw' && <RawOutput output={currentResult.output} />}
           {activeTab === 'errors' && currentResult.error && (
             <div className="error">
