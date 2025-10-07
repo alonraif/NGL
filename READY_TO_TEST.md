@@ -58,15 +58,11 @@ After login, you should see:
   - **Logout**
 
 ### 3. Create a Regular User
-1. Logout
-2. Click "Register" on login page
-3. Create a test account:
-   - Username: `testuser`
-   - Email: `test@example.com`
-   - Password: `Test123!`
-   - Confirm Password: `Test123!`
-4. Click "Create Account"
-5. You'll be automatically logged in
+Self-service registration is disabled. To create a test account:
+1. Make sure you are logged in as the admin user.
+2. Navigate to **Admin → Users**.
+3. Click **"Create User"** and fill in the details (username, email, temporary password, quota).
+4. Save the user, then sign out and log in using the new credentials to confirm access.
 
 ### 4. Upload a Log File
 1. Select a `.tar.bz2` or `.tar.gz` log file
@@ -84,10 +80,11 @@ After login, you should see:
 ### 6. Explore Admin Dashboard (Admin Only)
 1. Login as admin
 2. Click "Admin" button
-3. Explore three tabs:
+3. Explore the tabs:
    - **Statistics** - System overview (users, files, storage)
    - **Users** - Manage users, roles, quotas
    - **Parsers** - Control parser availability
+   - **SSL** - Manage certificates, run health checks, toggle HTTPS enforcement
 
 ### 7. Test Parser Access Control
 1. As admin, go to Admin → Parsers
@@ -110,15 +107,16 @@ After login, you should see:
 - `sessions` - JWT sessions
 - `notifications` - User notifications
 - `alert_rules` - Custom alerts
+- `ssl_configurations` - HTTPS certificate metadata
 
 ### API Endpoints
 
 **Authentication:**
-- POST `/api/auth/register` - Create account
 - POST `/api/auth/login` - Login
 - GET `/api/auth/me` - Current user
 - POST `/api/auth/logout` - Logout
 - POST `/api/auth/change-password` - Update password
+- User provisioning is handled via admin endpoints/UI (`POST /api/admin/users`)
 
 **File & Analysis:**
 - POST `/api/upload` - Upload and analyze
@@ -145,6 +143,10 @@ After login, you should see:
 **Hard Delete (Daily):**
 - Permanently removes soft-deleted items after 90 days
 - Frees up disk space
+
+**SSL Automation:**
+- Scheduled Let’s Encrypt renewal checks
+- Optional HTTPS health verification and remediation tasks
 
 ## 📈 Storage & Quotas
 

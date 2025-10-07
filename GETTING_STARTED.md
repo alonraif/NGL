@@ -44,10 +44,13 @@ docker-compose logs -f
 
 Press `Ctrl+C` to stop following logs.
 
-## Step 3: Initialize Database and Create Admin
+## Step 3: Run Migrations and Create Admin
 
 ```bash
-# Run inside backend container to create tables and admin user
+# Apply database migrations (ensures the latest schema)
+docker-compose exec backend alembic upgrade head
+
+# Seed the default admin user
 docker-compose exec backend python3 init_admin.py
 ```
 
@@ -82,17 +85,16 @@ You should see the login page.
    - Storage quota display
    - Navigation buttons (History, Admin, Logout)
 
-### Test User Registration
+### Create a Regular User (Admin Only)
 
-1. **Logout** from admin account
-2. **Click "Register"** on login page
-3. **Create a new user:**
-   - Username: `testuser` (min 3 chars)
-   - Email: `test@example.com`
-   - Password: `Test123!` (must have uppercase, lowercase, number, 8+ chars)
-   - Confirm Password: `Test123!`
-4. **Click "Create Account"**
-5. **You should be automatically logged in** and redirected to upload page
+Self-service registration is disabled. To add a user:
+
+1. **Ensure you are logged in as admin.**
+2. Navigate to **Admin → Users**.
+3. Click **"Create User"**.
+4. Provide the username, email, temporary password (must meet complexity requirements), role, and quota.
+5. Click **"Save"**. The user can now sign in with the temporary password and change it.
+6. Optionally log out and sign in as the new user to verify access.
 
 ### Test File Upload
 
@@ -139,6 +141,12 @@ You should see:
 - Enable/disable parsers
 - Control visibility to regular users
 - Set admin-only parsers
+
+**SSL Tab:**
+- View current certificate status and enforcement mode
+- Configure Let’s Encrypt or uploaded certificates
+- Trigger issuance, renewal, or health checks
+- Toggle HTTPS enforcement (forces HTTP→HTTPS redirects + HSTS)
 
 ### Test Parser Access Control
 

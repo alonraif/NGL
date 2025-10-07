@@ -31,6 +31,7 @@ This will start:
 
 ```bash
 # Run inside the backend container
+docker-compose exec backend alembic upgrade head
 docker-compose exec backend python3 init_admin.py
 ```
 
@@ -47,17 +48,7 @@ Open http://localhost:3000 in your browser and log in with the admin credentials
 
 ### Authentication
 
-#### Register New User
-```bash
-POST /api/auth/register
-Content-Type: application/json
-
-{
-  "username": "john",
-  "email": "john@example.com",
-  "password": "SecurePass123!"
-}
-```
+Public self-registration is disabled in production builds. The `/api/auth/register` endpoint returns `403` to enforce administrative onboarding. Create users through the Admin dashboard (`Admin → Users → Create User`) or by calling the admin user-management APIs.
 
 #### Login
 ```bash

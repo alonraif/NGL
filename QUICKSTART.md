@@ -24,11 +24,24 @@ That's it! The script will:
 - Build the Docker containers
 - Start the application
 - Display access URLs
+- Remind you to run database migrations and seed the admin user
 
 ### Option 2: Manual Docker Compose
 
 ```bash
 docker-compose up --build
+```
+
+### Initial Setup (first run only)
+
+```bash
+# Copy the sample environment and customise secrets
+cp .env.example .env
+# Edit .env to set strong JWT/DB secrets and production CORS origins
+
+# Apply migrations and seed the default admin user
+docker-compose exec backend alembic upgrade head
+docker-compose exec backend python3 init_admin.py
 ```
 
 ## Access the Application
@@ -37,7 +50,7 @@ Once started, open your browser to:
 
 **🌐 http://localhost:3000**
 
-You should see a beautiful purple gradient interface with an upload area.
+Sign in with the seeded admin account (`admin` / `Admin123!`) and change the password immediately.
 
 ## First Analysis
 
@@ -106,6 +119,7 @@ docker-compose up --build
 
 ## Next Steps
 
+- Use **Admin → Users** to create regular accounts (self-registration is disabled by default)
 - Read the full [README.md](README.md) for detailed documentation
 - Explore all 19 parsing modes
 - Try date range filtering

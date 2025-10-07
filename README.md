@@ -34,6 +34,12 @@
 - Search and filter capabilities
 - Export results (download/copy)
 
+### 🔒 **Security & Operations**
+- Role-based access with auditable JWT sessions
+- Automated HTTPS management (Let’s Encrypt issuance, custom certificate uploads, HSTS enforcement)
+- Celery powered scheduled tasks (cleanup, SSL renewal, health checks)
+- Fine-grained parser visibility controls for admins
+
 ### 🐳 **Docker-Based**
 - One-command deployment
 - Isolated containers for backend and frontend
@@ -62,21 +68,43 @@
    cd /path/to/ngl
    ```
 
-2. **Start the application:**
+2. **Configure environment (first run only):**
+   ```bash
+   cp .env.example .env
+   # Edit .env and provide secure values (JWT secret, DB password, CORS origins, etc.)
+   ```
+
+3. **Start the application:**
    ```bash
    docker-compose up --build
    ```
 
-3. **Access the web interface:**
+4. **Apply database migrations and seed the admin user:**
+   ```bash
+   docker-compose exec backend alembic upgrade head
+   docker-compose exec backend python3 init_admin.py
+   ```
+
+5. **Access the web interface:**
    - Open your browser to: **http://localhost:3000**
    - Backend API runs on: **http://localhost:5000**
+   - Sign in with the seeded admin account (`admin` / `Admin123!`, then change the password)
 
-4. **Stop the application:**
+6. **Stop the application:**
    ```bash
    docker-compose down
    ```
 
+## 📚 Documentation
+
+- [GETTING_STARTED.md](GETTING_STARTED.md) – End-to-end local setup checklist
+- [LINUX_DEPLOYMENT_MANUAL.md](LINUX_DEPLOYMENT_MANUAL.md) – Production deployment on Linux with HTTPS
+- [SECURITY_DEPLOYMENT_GUIDE.md](SECURITY_DEPLOYMENT_GUIDE.md) – Hardening steps and SSL operations
+- [DEVELOPMENT.md](DEVELOPMENT.md) – Local development workflows
+
 ## 📖 Usage Guide
+
+You must be signed in to access the application. The default admin user is created via `init_admin.py`. Public self-registration is disabled; admins can add or reset users from the **Admin → Users** tab.
 
 ### Uploading Log Files
 
