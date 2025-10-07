@@ -33,9 +33,19 @@ function BandwidthChart({ data, mode }) {
 
   const colors = ['#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2'];
 
+  // Parse numeric columns once so the chart domain uses numeric comparisons
+  const chartData = data.map(row => {
+    const converted = { ...row };
+    numericColumns.forEach(col => {
+      const parsed = parseFloat(row[col]);
+      converted[col] = Number.isFinite(parsed) ? parsed : 0;
+    });
+    return converted;
+  });
+
   // Calculate summary statistics
   const stats = numericColumns.map((col, idx) => {
-    const values = data.map(row => parseFloat(row[col]) || 0);
+    const values = chartData.map(row => row[col] || 0);
     const sum = values.reduce((a, b) => a + b, 0);
     const avg = sum / values.length;
     const max = Math.max(...values);
@@ -86,7 +96,7 @@ function BandwidthChart({ data, mode }) {
       </div>
       <div ref={chartRef} className="chart-container" style={{ height: '500px' }}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data}>
+          <AreaChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey={headers[0]}
