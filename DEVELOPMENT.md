@@ -176,6 +176,8 @@ curl -X POST -F "file=@test.tar.bz2" \
      http://localhost:5000/api/upload
 ```
 
+- Compare native parsers against `lula2.py` with `python3 backend/tests/regression_compare.py`. The script skips modes when `python-dateutil` or `pytz` are unavailable.
+
 ### Frontend Testing
 
 ```bash

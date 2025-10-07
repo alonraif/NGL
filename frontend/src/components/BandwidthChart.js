@@ -83,7 +83,7 @@ function BandwidthChart({ data, mode }) {
             />
             <YAxis
               label={{ value: 'Bandwidth (Kbps)', angle: -90, position: 'insideLeft' }}
-              domain={[0, 'auto']}
+              domain={[0, 'dataMax']}
             />
             <Tooltip />
             <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />

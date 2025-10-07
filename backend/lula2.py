@@ -15,7 +15,8 @@ import functools
 try:
     import regex as re
 except ImportError:
-    print("Could not find the module regex.  If you are using pip, install it with pip install regex")
+    import re
+    print("Could not find the module regex. Falling back to built-in re module.")
 
 VERSION = "4.2"
 
@@ -2807,9 +2808,11 @@ class WorkDir(ShellOut):
     path = ''
     base = ''
 
-    def __init__(self, base="~/.lula", name='unnamed'):
+    def __init__(self, base=None, name='unnamed'):
         if name is None or name == '':
             raise ValueError('the name in WorkDir was blank.')
+        if base is None:
+            base = os.getenv('LULA_TEMP_DIR') or "~/.lula"
         self.base = base
         self.path = os.path.join(os.path.expanduser(base), name)
 
