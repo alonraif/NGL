@@ -43,6 +43,10 @@ services:
       - ./backend:/app
       - uploads:/app/uploads
       - temp:/app/temp
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+      - nginx_runtime:/etc/nginx/runtime
+      - nginx_ssl:/etc/nginx/ssl
       - ./test_config.json:/app/test_config.json:ro
       - ./test_logs:/app/test_logs:ro
     environment:
@@ -54,6 +58,10 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production}
       - UPLOAD_RETENTION_DAYS=${UPLOAD_RETENTION_DAYS:-30}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - CERTBOT_WEBROOT=${CERTBOT_WEBROOT:-/var/www/certbot}
+      - LE_LIVE_BASE=${LE_LIVE_BASE:-/etc/letsencrypt/live}
+      - NGINX_RUNTIME_DIR=${NGINX_RUNTIME_DIR:-/etc/nginx/runtime}
+      - UPLOAD_CERT_DIR=${UPLOAD_CERT_DIR:-/etc/nginx/ssl/uploaded}
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,10 +79,18 @@ services:
       - ./backend:/app
       - uploads:/app/uploads
       - temp:/app/temp
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+      - nginx_runtime:/etc/nginx/runtime
+      - nginx_ssl:/etc/nginx/ssl
     environment:
       - PYTHONUNBUFFERED=1
       - DATABASE_URL=postgresql://${POSTGRES_USER:-ngl_user}:${POSTGRES_PASSWORD:-ngl_password}@postgres:5432/${POSTGRES_DB:-ngl_db}
       - REDIS_URL=redis://redis:6379/0
+      - CERTBOT_WEBROOT=${CERTBOT_WEBROOT:-/var/www/certbot}
+      - LE_LIVE_BASE=${LE_LIVE_BASE:-/etc/letsencrypt/live}
+      - NGINX_RUNTIME_DIR=${NGINX_RUNTIME_DIR:-/etc/nginx/runtime}
+      - UPLOAD_CERT_DIR=${UPLOAD_CERT_DIR:-/etc/nginx/ssl/uploaded}
     depends_on:
       postgres:
         condition: service_healthy
@@ -90,10 +106,18 @@ services:
     command: celery -A celery_app.celery beat --loglevel=info
     volumes:
       - ./backend:/app
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+      - nginx_runtime:/etc/nginx/runtime
+      - nginx_ssl:/etc/nginx/ssl
     environment:
       - PYTHONUNBUFFERED=1
       - DATABASE_URL=postgresql://${POSTGRES_USER:-ngl_user}:${POSTGRES_PASSWORD:-ngl_password}@postgres:5432/${POSTGRES_DB:-ngl_db}
       - REDIS_URL=redis://redis:6379/0
+      - CERTBOT_WEBROOT=${CERTBOT_WEBROOT:-/var/www/certbot}
+      - LE_LIVE_BASE=${LE_LIVE_BASE:-/etc/letsencrypt/live}
+      - NGINX_RUNTIME_DIR=${NGINX_RUNTIME_DIR:-/etc/nginx/runtime}
+      - UPLOAD_CERT_DIR=${UPLOAD_CERT_DIR:-/etc/nginx/ssl/uploaded}
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,8 +132,25 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:80"
+      - "80:80"
+      - "443:443"
     depends_on:
       - backend
+    networks:
+      - lula-network
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt:ro
+      - nginx_runtime:/etc/nginx/runtime
+
+  certbot:
+    image: certbot/certbot:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["trap exit TERM; while :; do sleep 3600; done"]
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+      - nginx_ssl:/etc/nginx/ssl
     networks:
       - lula-network
 
@@ -118,6 +159,10 @@ volumes:
   temp:
   postgres_data:
   redis_data:
+  certbot_www:
+  certbot_certs:
+  nginx_runtime:
+  nginx_ssl:
 
 networks:
   lula-network:

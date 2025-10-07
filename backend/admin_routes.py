@@ -4,12 +4,43 @@ Admin-only routes for user and parser management
 from flask import Blueprint, request, jsonify
 from sqlalchemy import func
 from database import SessionLocal
-from models import User, Parser, ParserPermission, LogFile, Analysis, DeletionLog, S3Configuration
+from models import (
+    User,
+    Parser,
+    ParserPermission,
+    LogFile,
+    Analysis,
+    DeletionLog,
+    S3Configuration,
+    SSLConfiguration,
+)
 from auth import admin_required, log_audit
 from datetime import datetime
 import os
 import re
+import time
 from storage_service import StorageFactory
+from config import Config
+from ssl_service import (
+    SSLConfigurationError,
+    SSLVerificationError,
+    cert_paths_exist,
+    cleanup_uploaded_files,
+    disable_nginx_ssl_snippet,
+    ensure_directories,
+    get_lets_encrypt_live_paths,
+    is_valid_domain,
+    normalize_domains,
+    serialize_ssl_configuration,
+    store_uploaded_material,
+    validate_certificate_pair,
+    verify_https_endpoint,
+    write_enforce_redirect,
+    write_http_redirect_snippet,
+    write_nginx_ssl_snippet,
+    read_certificate_metadata_from_path,
+)
+from tasks import issue_ssl_certificate, renew_ssl_certificate, verify_ssl_health
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -33,6 +64,26 @@ def validate_password(password):
     if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/~`]', password):
         return False, "Password must contain at least one special character (!@#$%^&* etc.)"
     return True, None
+
+
+def get_or_create_ssl_config(db):
+    """Return the singleton SSL configuration row, creating it if necessary."""
+    ssl_config = db.query(SSLConfiguration).first()
+    if not ssl_config:
+        ssl_config = SSLConfiguration()
+        db.add(ssl_config)
+        db.commit()
+        db.refresh(ssl_config)
+    return ssl_config
+
+
+def validate_domains(primary_domain, alternate_domains):
+    """Validate domain inputs and return normalized list."""
+    domains = normalize_domains(primary_domain, alternate_domains)
+    for domain in domains:
+        if not is_valid_domain(domain):
+            raise SSLConfigurationError(f'Invalid domain: {domain}')
+    return domains
 
 
 @admin_bp.route('/users', methods=['GET'])
@@ -721,6 +772,16 @@ def get_system_stats(current_user, db):
             func.sum(LogFile.file_size_bytes)
         ).scalar() or 0
 
+        ssl_config = db.query(SSLConfiguration).first()
+        ssl_summary = None
+        if ssl_config:
+            ssl_summary = {
+                'mode': ssl_config.mode,
+                'enforce_https': ssl_config.enforce_https,
+                'certificate_status': ssl_config.certificate_status,
+                'expires_at': ssl_config.expires_at.isoformat() if ssl_config.expires_at else None
+            }
+
         return jsonify({
             'users': {
                 'total': total_users,
@@ -736,7 +797,8 @@ def get_system_stats(current_user, db):
             'storage': {
                 'total_bytes': int(total_storage) if total_storage else 0,
                 'total_mb': round(int(total_storage) / (1024 * 1024), 2) if total_storage else 0
-            }
+            },
+            'ssl': ssl_summary
         }), 200
 
     except Exception as e:
@@ -1017,3 +1079,370 @@ def get_s3_stats(current_user, db):
 
     except Exception as e:
         return jsonify({'error': f'Failed to get S3 stats: {str(e)}'}), 500
+
+
+# ============================================================================
+# SSL Configuration Routes
+# ============================================================================
+
+
+@admin_bp.route('/ssl', methods=['GET'])
+@admin_required
+def get_ssl_configuration(current_user, db):
+    """Return current SSL configuration."""
+    try:
+        ensure_directories()
+        ssl_config = get_or_create_ssl_config(db)
+        return jsonify({'ssl': serialize_ssl_configuration(ssl_config)}), 200
+    except Exception as exc:
+        return jsonify({'error': f'Failed to load SSL configuration: {str(exc)}'}), 500
+
+
+@admin_bp.route('/ssl/settings', methods=['POST'])
+@admin_required
+def update_ssl_settings(current_user, db):
+    """Update SSL mode and domain settings."""
+    data = request.get_json() or {}
+    mode = data.get('mode', 'lets_encrypt')
+
+    if mode not in ('lets_encrypt', 'uploaded'):
+        return jsonify({'error': 'mode must be "lets_encrypt" or "uploaded"'}), 400
+
+    primary_domain = (data.get('primary_domain') or '').strip().lower() or None
+    alternate_domains = data.get('alternate_domains', []) or []
+    if not isinstance(alternate_domains, list):
+        return jsonify({'error': 'alternate_domains must be a list'}), 400
+
+    verification_hostname = (data.get('verification_hostname') or '').strip().lower() or None
+    auto_renew = bool(data.get('auto_renew', True))
+
+    try:
+        domains = []
+        if primary_domain or alternate_domains:
+            domains = validate_domains(primary_domain, alternate_domains)
+
+        if mode == 'lets_encrypt' and not domains:
+            return jsonify({'error': 'Primary domain is required for Let\'s Encrypt mode'}), 400
+
+        if verification_hostname and not is_valid_domain(verification_hostname):
+            raise SSLConfigurationError(f'Invalid verification hostname: {verification_hostname}')
+
+        ssl_config = get_or_create_ssl_config(db)
+
+        if domains:
+            ssl_config.primary_domain = domains[0]
+            ssl_config.alternate_domains = domains[1:]
+        else:
+            ssl_config.primary_domain = None
+            ssl_config.alternate_domains = []
+
+        ssl_config.mode = mode
+        ssl_config.auto_renew = auto_renew
+        ssl_config.verification_hostname = verification_hostname or ssl_config.primary_domain
+
+        if mode == 'lets_encrypt' and ssl_config.certificate_status not in ('verified', 'pending_issue', 'renewing'):
+            ssl_config.certificate_status = 'idle'
+
+        ssl_config.updated_at = datetime.utcnow()
+        db.commit()
+
+        log_audit(db, current_user.id, 'update_ssl_settings', 'ssl_configuration', ssl_config.id, {
+            'mode': ssl_config.mode,
+            'primary_domain': ssl_config.primary_domain,
+            'alternate_domains': ssl_config.alternate_domains,
+            'auto_renew': ssl_config.auto_renew
+        })
+
+        return jsonify({'success': True, 'ssl': serialize_ssl_configuration(ssl_config)}), 200
+
+    except SSLConfigurationError as exc:
+        db.rollback()
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        db.rollback()
+        return jsonify({'error': f'Failed to update SSL settings: {str(exc)}'}), 500
+
+
+def _read_uploaded_text(file_storage, label):
+    try:
+        content = file_storage.read()
+        if isinstance(content, bytes):
+            return content.decode('utf-8')
+        return str(content)
+    except Exception as exc:
+        raise SSLConfigurationError(f'Failed to read {label}: {exc}')
+
+
+@admin_bp.route('/ssl/upload', methods=['POST'])
+@admin_required
+def upload_ssl_certificate(current_user, db):
+    """Upload custom certificate material for HTTPS."""
+    data = None
+    certificate_pem = None
+    private_key_pem = None
+
+    if request.content_type and request.content_type.startswith('multipart/form-data'):
+        cert_file = request.files.get('certificate_file')
+        key_file = request.files.get('private_key_file')
+
+        if not cert_file or not key_file:
+            return jsonify({'error': 'Certificate and private key files are required'}), 400
+
+        certificate_pem = _read_uploaded_text(cert_file, 'certificate file')
+        private_key_pem = _read_uploaded_text(key_file, 'private key file')
+    else:
+        data = request.get_json() or {}
+        certificate_pem = data.get('certificate_pem')
+        private_key_pem = data.get('private_key_pem')
+
+    if not certificate_pem or not private_key_pem:
+        return jsonify({'error': 'Certificate and private key content are required'}), 400
+
+    try:
+        metadata = validate_certificate_pair(certificate_pem, private_key_pem)
+        new_paths = store_uploaded_material(certificate_pem, private_key_pem)
+        ssl_config = get_or_create_ssl_config(db)
+
+        existing_paths = {
+            'certificate_path': ssl_config.uploaded_certificate_path,
+            'private_key_path': ssl_config.uploaded_private_key_path,
+            'chain_path': ssl_config.uploaded_chain_path,
+        }
+
+        ssl_config.mode = 'uploaded'
+        ssl_config.is_enabled = True
+        ssl_config.certificate_status = 'verified'
+        ssl_config.uploaded_certificate_path = new_paths['certificate_path']
+        ssl_config.uploaded_private_key_path = new_paths['private_key_path']
+        ssl_config.uploaded_chain_path = new_paths.get('chain_path')
+        ssl_config.uploaded_fingerprint = metadata.fingerprint_sha256
+        now = datetime.utcnow()
+        ssl_config.uploaded_at = now
+        ssl_config.last_verified_at = now
+        ssl_config.last_issued_at = now
+        ssl_config.expires_at = metadata.expires_at
+        ssl_config.last_error = None
+        ssl_config.is_enabled = True
+        ssl_config.updated_at = now
+
+        if not ssl_config.primary_domain:
+            ssl_config.primary_domain = ssl_config.verification_hostname or None
+
+        db.commit()
+
+        # Clean up previous uploaded files after successful commit
+        cleanup_uploaded_files(existing_paths)
+
+        log_audit(db, current_user.id, 'upload_ssl_certificate', 'ssl_configuration', ssl_config.id, {
+            'mode': 'uploaded',
+            'fingerprint_sha256': ssl_config.uploaded_fingerprint,
+            'expires_at': ssl_config.expires_at.isoformat() if ssl_config.expires_at else None
+        })
+
+        return jsonify({'success': True, 'ssl': serialize_ssl_configuration(ssl_config)}), 200
+
+    except SSLConfigurationError as exc:
+        if 'new_paths' in locals():
+            cleanup_uploaded_files(new_paths)
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        db.rollback()
+        cleanup_uploaded_files(new_paths if 'new_paths' in locals() else {})
+        return jsonify({'error': f'Failed to store uploaded certificate: {str(exc)}'}), 500
+
+
+@admin_bp.route('/ssl/issue', methods=['POST'])
+@admin_required
+def issue_lets_encrypt_certificate(current_user, db):
+    """Trigger Let\'s Encrypt certificate issuance via Celery."""
+    data = request.get_json() or {}
+    staging = bool(data.get('staging', Config.SSL_STAGING))
+
+    try:
+        ssl_config = get_or_create_ssl_config(db)
+
+        if ssl_config.mode != 'lets_encrypt':
+            return jsonify({'error': 'System is not in Let\'s Encrypt mode'}), 400
+
+        if not ssl_config.primary_domain:
+            return jsonify({'error': 'Primary domain must be configured before issuing a certificate'}), 400
+
+        domains = validate_domains(ssl_config.primary_domain, ssl_config.alternate_domains or [])
+
+        ssl_config.certificate_status = 'pending_issue'
+        ssl_config.last_error = None
+        ssl_config.updated_at = datetime.utcnow()
+        db.commit()
+
+        issue_ssl_certificate.delay(ssl_config.id, staging)
+
+        log_audit(db, current_user.id, 'issue_ssl_certificate', 'ssl_configuration', ssl_config.id, {
+            'domains': domains,
+            'staging': staging
+        })
+
+        return jsonify({'success': True, 'message': 'Certificate issuance started', 'ssl': serialize_ssl_configuration(ssl_config)}), 202
+
+    except SSLConfigurationError as exc:
+        db.rollback()
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        db.rollback()
+        return jsonify({'error': f'Failed to trigger certificate issuance: {str(exc)}'}), 500
+
+
+@admin_bp.route('/ssl/renew', methods=['POST'])
+@admin_required
+def renew_ssl_certificate_now(current_user, db):
+    """Trigger a renewal task manually."""
+    data = request.get_json() or {}
+    force = bool(data.get('force', False))
+
+    try:
+        ssl_config = get_or_create_ssl_config(db)
+        if ssl_config.mode != 'lets_encrypt':
+            return jsonify({'error': 'Manual renewal is only available for Let\'s Encrypt mode'}), 400
+
+        if ssl_config.certificate_status not in ('verified', 'error', 'idle'):
+            return jsonify({'error': f'Cannot renew while status is {ssl_config.certificate_status}'}), 400
+
+        ssl_config.certificate_status = 'renewing'
+        ssl_config.updated_at = datetime.utcnow()
+        db.commit()
+
+        renew_ssl_certificate.delay(ssl_config.id, force)
+
+        log_audit(db, current_user.id, 'renew_ssl_certificate', 'ssl_configuration', ssl_config.id, {
+            'force': force
+        })
+
+        return jsonify({'success': True, 'message': 'Renewal started', 'ssl': serialize_ssl_configuration(ssl_config)}), 202
+
+    except Exception as exc:
+        db.rollback()
+        return jsonify({'error': f'Failed to trigger renewal: {str(exc)}'}), 500
+
+
+@admin_bp.route('/ssl/enforce', methods=['POST'])
+@admin_required
+def toggle_ssl_enforcement(current_user, db):
+    """Enable or disable HTTPS enforcement by updating nginx runtime files."""
+    data = request.get_json() or {}
+    enforce = data.get('enforce')
+    skip_verification = bool(data.get('skip_verification', False))
+    verification_host_override = (data.get('verification_host') or '').strip().lower() or None
+
+    if enforce is None:
+        return jsonify({'error': 'enforce flag is required'}), 400
+
+    try:
+        ensure_directories()
+        ssl_config = get_or_create_ssl_config(db)
+
+        verification_host = (
+            verification_host_override
+            or ssl_config.verification_hostname
+            or Config.SSL_VERIFICATION_HOST
+            or ssl_config.primary_domain
+        )
+
+        if enforce:
+            if ssl_config.mode == 'lets_encrypt':
+                if not ssl_config.primary_domain:
+                    return jsonify({'error': 'Configure a primary domain before enabling HTTPS'}), 400
+                paths = get_lets_encrypt_live_paths(ssl_config.primary_domain)
+            else:
+                paths = {
+                    'certificate_path': ssl_config.uploaded_certificate_path,
+                    'private_key_path': ssl_config.uploaded_private_key_path,
+                }
+
+            cert_path = paths.get('certificate_path')
+            key_path = paths.get('private_key_path')
+
+            if not cert_paths_exist(cert_path, key_path):
+                return jsonify({'error': 'Certificate files not found. Issue or upload a certificate before enforcing HTTPS.'}), 400
+
+            write_nginx_ssl_snippet(ssl_config.mode, cert_path, key_path)
+            write_http_redirect_snippet(True)
+
+            verification_error = None
+            if verification_host and not skip_verification:
+                for attempt in range(3):
+                    try:
+                        verify_https_endpoint(verification_host, Config.SSL_HEALTHCHECK_PATH)
+                        verification_error = None
+                        break
+                    except SSLVerificationError as exc:
+                        verification_error = str(exc)
+                        time.sleep(2)
+
+            if verification_error:
+                disable_nginx_ssl_snippet()
+                write_http_redirect_snippet(False)
+                ssl_config.last_error = verification_error
+                ssl_config.updated_at = datetime.utcnow()
+                db.commit()
+                return jsonify({'error': verification_error}), 502
+
+            if ssl_config.mode == 'lets_encrypt':
+                cert_metadata = read_certificate_metadata_from_path(cert_path)
+                if cert_metadata:
+                    ssl_config.expires_at = cert_metadata.expires_at
+
+            ssl_config.enforce_https = True
+            ssl_config.is_enabled = True
+            ssl_config.last_verified_at = datetime.utcnow()
+            ssl_config.verification_hostname = verification_host
+            ssl_config.last_error = None
+            write_enforce_redirect(True)
+            write_http_redirect_snippet(True)
+
+        else:
+            disable_nginx_ssl_snippet()
+            write_http_redirect_snippet(False)
+            try:
+                verify_ssl_health.delay(ssl_config.id, False)
+            except Exception:
+                pass
+            ssl_config.enforce_https = False
+            write_enforce_redirect(False)
+
+        ssl_config.updated_at = datetime.utcnow()
+        db.commit()
+
+        log_audit(db, current_user.id, 'toggle_ssl_enforcement', 'ssl_configuration', ssl_config.id, {
+            'enforce': bool(enforce),
+            'verification_host': verification_host,
+            'skip_verification': skip_verification
+        })
+
+        return jsonify({'success': True, 'ssl': serialize_ssl_configuration(ssl_config)}), 200
+
+    except SSLConfigurationError as exc:
+        db.rollback()
+        return jsonify({'error': str(exc)}), 500
+    except Exception as exc:
+        db.rollback()
+        return jsonify({'error': f'Failed to update HTTPS enforcement: {str(exc)}'}), 500
+
+
+@admin_bp.route('/ssl/health-check', methods=['POST'])
+@admin_required
+def trigger_ssl_health_check(current_user, db):
+    """Queue a health check job to validate HTTPS serving."""
+    data = request.get_json() or {}
+    force = bool(data.get('force', False))
+
+    try:
+        ssl_config = get_or_create_ssl_config(db)
+        verify_ssl_health.delay(ssl_config.id, force)
+
+        log_audit(db, current_user.id, 'trigger_ssl_health_check', 'ssl_configuration', ssl_config.id, {
+            'force': force
+        })
+
+        return jsonify({'success': True, 'message': 'SSL health check scheduled'}), 202
+
+    except Exception as exc:
+        return jsonify({'error': f'Failed to queue SSL health check: {str(exc)}'}), 500

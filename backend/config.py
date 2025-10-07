@@ -41,4 +41,20 @@ class Config:
             'task': 'tasks.hard_delete_old_soft_deletes',
             'schedule': 86400.0,  # Every day
         },
+        'schedule-ssl-renewal': {
+            'task': 'tasks.schedule_ssl_renewal',
+            'schedule': 43200.0,  # Twice daily
+        },
+        'schedule-ssl-health-check': {
+            'task': 'tasks.schedule_ssl_health_check',
+            'schedule': 1800.0,  # Every 30 minutes
+        },
     }
+
+    # SSL / HTTPS
+    SSL_CERTBOT_EMAIL = os.getenv('SSL_CERTBOT_EMAIL')
+    SSL_STAGING = os.getenv('SSL_STAGING', 'false').lower() == 'true'
+    SSL_HEALTHCHECK_PATH = os.getenv('SSL_HEALTHCHECK_PATH', '/api/health')
+    SSL_VERIFICATION_HOST = os.getenv('SSL_VERIFICATION_HOST')
+    SSL_AUTO_RENEW = os.getenv('SSL_AUTO_RENEW', 'true').lower() == 'true'
+    SSL_ENCRYPTION_KEY = os.getenv('SSL_ENCRYPTION_KEY')

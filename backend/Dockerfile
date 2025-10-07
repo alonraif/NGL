@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y \
     pbzip2 \
     pigz \
     libmagic1 \
+    certbot \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching

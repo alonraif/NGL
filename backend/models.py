@@ -353,3 +353,37 @@ class S3Configuration(Base):
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class SSLConfiguration(Base):
+    __tablename__ = 'ssl_configurations'
+
+    id = Column(Integer, primary_key=True)
+    mode = Column(String(20), nullable=False, default='lets_encrypt')
+    primary_domain = Column(String(255))
+    alternate_domains = Column(JSON)
+    enforce_https = Column(Boolean, nullable=False, default=False)
+    is_enabled = Column(Boolean, nullable=False, default=False)
+    certificate_status = Column(String(50), nullable=False, default='idle')
+    last_issued_at = Column(DateTime(timezone=True))
+    last_verified_at = Column(DateTime(timezone=True))
+    expires_at = Column(DateTime(timezone=True))
+    last_error = Column(Text)
+    verification_hostname = Column(String(255))
+    uploaded_certificate_path = Column(String(512))
+    uploaded_private_key_path = Column(String(512))
+    uploaded_chain_path = Column(String(512))
+    uploaded_fingerprint = Column(String(128))
+    uploaded_at = Column(DateTime(timezone=True))
+    auto_renew = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def get_all_domains(self):
+        """Return a list of all domains associated with the certificate."""
+        domains = []
+        if self.primary_domain:
+            domains.append(self.primary_domain)
+        if self.alternate_domains:
+            domains.extend([d for d in self.alternate_domains if d])
+        return domains

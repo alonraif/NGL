@@ -15,7 +15,7 @@ import threading
 from parsers import get_parser
 from parsers.base import CancellationException
 from database import init_db, SessionLocal
-from models import User, Parser, LogFile, Analysis, AnalysisResult
+from models import User, Parser, LogFile, Analysis, AnalysisResult, SSLConfiguration
 from auth import token_required, log_audit
 from auth_routes import auth_bp
 from admin_routes import admin_bp
@@ -25,8 +25,14 @@ import hashlib
 import magic
 from rate_limiter import limiter
 from storage_service import StorageFactory
+from werkzeug.middleware.proxy_fix import ProxyFix
+import json
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+
+# Prefer HTTPS URLs when generating external links
+app.config['PREFERRED_URL_SCHEME'] = 'https'
 # Restrict CORS to configured origins only
 CORS(app, origins=Config.CORS_ORIGINS, supports_credentials=True)
 
@@ -53,6 +59,64 @@ os.makedirs(TEMP_FOLDER, exist_ok=True)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max
+
+SSL_STATE_PATH = os.getenv('SSL_STATE_PATH', '/etc/nginx/runtime/ssl_state.json')
+SSL_CACHE_TTL = int(os.getenv('SSL_STATE_CACHE_TTL', '5'))
+_ssl_enforce_cache = {
+    'value': False,
+    'checked_at': 0.0
+}
+
+
+def _read_ssl_state_file():
+    try:
+        with open(SSL_STATE_PATH, 'r', encoding='utf-8') as fh:
+            data = json.load(fh)
+            return bool(data.get('enforce_https'))
+    except Exception:
+        return None
+
+
+def is_https_enforced(force_refresh: bool = False) -> bool:
+    """Return whether HTTPS enforcement is currently active."""
+    now = time.time()
+    if force_refresh or (now - _ssl_enforce_cache['checked_at'] > SSL_CACHE_TTL):
+        state = _read_ssl_state_file()
+        if state is None:
+            db = SessionLocal()
+            try:
+                ssl_config = db.query(SSLConfiguration).first()
+                state = bool(ssl_config and ssl_config.enforce_https)
+            except Exception:
+                state = False
+            finally:
+                db.close()
+        _ssl_enforce_cache['value'] = bool(state)
+        _ssl_enforce_cache['checked_at'] = now
+    return bool(_ssl_enforce_cache['value'])
+
+
+@app.before_request
+def redirect_to_https():
+    """Force HTTPS when enforcement is enabled."""
+    if request.path.startswith('/.well-known/acme-challenge/'):
+        # Allow ACME HTTP-01 challenges to pass through
+        return
+
+    if request.is_secure or request.headers.get('X-Forwarded-Proto', '').lower() == 'https':
+        return
+
+    if is_https_enforced():
+        url = request.url.replace('http://', 'https://', 1)
+        return redirect(url, code=301)
+
+
+@app.after_request
+def add_hsts_header(response):
+    """Add HSTS header when HTTPS is enforced."""
+    if is_https_enforced():
+        response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    return response
 
 PARSE_MODES = [
     {'value': 'known', 'label': 'Known Errors (Default)', 'description': 'Small set of known errors and events'},

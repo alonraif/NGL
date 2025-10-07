@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
@@ -39,31 +39,61 @@ const AdminDashboard = () => {
   const [testingS3, setTestingS3] = useState(false);
   const [savingS3, setSavingS3] = useState(false);
 
-  useEffect(() => {
-    fetchStats();
-    fetchUsers();
-    fetchParsers();
-    fetchAnalyses();
-    fetchS3Config();
-    fetchS3Stats();
+  // SSL configuration state
+  const [sslConfig, setSslConfig] = useState(null);
+  const [sslLoading, setSslLoading] = useState(true);
+  const [sslProcessing, setSslProcessing] = useState(false);
+  const [sslSettingsForm, setSslSettingsForm] = useState({
+    mode: 'lets_encrypt',
+    primary_domain: '',
+    alternate_domains: '',
+    verification_hostname: '',
+    auto_renew: true
+  });
+  const [sslUploadForm, setSslUploadForm] = useState({
+    certificate_file: null,
+    private_key_file: null
+  });
+  const [sslMessage, setSslMessage] = useState(null);
+  const [sslError, setSslError] = useState(null);
+
+  const fetchSslConfig = useCallback(async (showSpinner = true) => {
+    try {
+      if (showSpinner) {
+        setSslLoading(true);
+      }
+      const response = await axios.get('/api/admin/ssl');
+      const ssl = response.data?.ssl || null;
+      setSslConfig(ssl);
+      if (ssl) {
+        setSslSettingsForm({
+          mode: ssl.mode || 'lets_encrypt',
+          primary_domain: ssl.primary_domain || '',
+          alternate_domains: (ssl.alternate_domains || []).join(', '),
+          verification_hostname: ssl.verification_hostname || '',
+          auto_renew: ssl.auto_renew !== false
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch SSL config:', error);
+      setSslError(error.response?.data?.error || 'Failed to load SSL configuration');
+    } finally {
+      if (showSpinner) {
+        setSslLoading(false);
+      }
+    }
   }, []);
 
-  useEffect(() => {
-    if (activeTab === 'analyses') {
-      fetchAnalyses();
-    }
-  }, [selectedUserId]);
-
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
       const response = await axios.get('/api/admin/stats');
       setStats(response.data);
     } catch (error) {
       console.error('Failed to fetch stats:', error);
     }
-  };
+  }, []);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const response = await axios.get('/api/admin/users');
       setUsers(response.data.users);
@@ -72,18 +102,18 @@ const AdminDashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchParsers = async () => {
+  const fetchParsers = useCallback(async () => {
     try {
       const response = await axios.get('/api/admin/parsers');
       setParsers(response.data.parsers);
     } catch (error) {
       console.error('Failed to fetch parsers:', error);
     }
-  };
+  }, []);
 
-  const fetchAnalyses = async () => {
+  const fetchAnalyses = useCallback(async () => {
     try {
       const params = {};
       if (selectedUserId) {
@@ -94,7 +124,7 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Failed to fetch analyses:', error);
     }
-  };
+  }, [selectedUserId]);
 
   const deleteAnalysis = async (analysisId, isHard = false) => {
     const confirmMsg = isHard
@@ -158,6 +188,156 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleSslSettingsChange = (field, value) => {
+    setSslSettingsForm(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const submitSslSettings = async (e) => {
+    e?.preventDefault();
+    setSslProcessing(true);
+    setSslMessage(null);
+    setSslError(null);
+    try {
+      const payload = {
+        mode: sslSettingsForm.mode,
+        primary_domain: sslSettingsForm.primary_domain.trim() || null,
+        alternate_domains: sslSettingsForm.alternate_domains
+          ? sslSettingsForm.alternate_domains.split(',').map(d => d.trim()).filter(Boolean)
+          : [],
+        verification_hostname: sslSettingsForm.verification_hostname.trim() || null,
+        auto_renew: sslSettingsForm.auto_renew
+      };
+      const response = await axios.post('/api/admin/ssl/settings', payload);
+      setSslConfig(response.data?.ssl);
+      setSslMessage('SSL settings updated');
+    } catch (error) {
+      console.error('Failed to update SSL settings:', error);
+      setSslError(error.response?.data?.error || 'Failed to update SSL settings');
+    } finally {
+      setSslProcessing(false);
+    }
+  };
+
+  const submitSslUpload = async (e) => {
+    e?.preventDefault();
+    if (!sslUploadForm.certificate_file || !sslUploadForm.private_key_file) {
+      setSslError('Please select both certificate and private key files.');
+      return;
+    }
+    setSslProcessing(true);
+    setSslMessage(null);
+    setSslError(null);
+    try {
+      const formData = new FormData();
+      formData.append('certificate_file', sslUploadForm.certificate_file);
+      formData.append('private_key_file', sslUploadForm.private_key_file);
+      // Certificate file should already include intermediates (full chain)
+      const response = await axios.post('/api/admin/ssl/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setSslConfig(response.data?.ssl);
+      setSslMessage('Certificate uploaded successfully');
+      setSslUploadForm({ certificate_file: null, private_key_file: null });
+      fetchSslConfig();
+    } catch (error) {
+      console.error('Failed to upload certificate:', error);
+      setSslError(error.response?.data?.error || 'Failed to upload certificate');
+    } finally {
+      setSslProcessing(false);
+    }
+  };
+
+  const triggerIssuance = async () => {
+    if (!window.confirm('Start Let\'s Encrypt issuance? Ensure DNS points to this host first.')) {
+      return;
+    }
+    setSslProcessing(true);
+    setSslMessage(null);
+    setSslError(null);
+    try {
+      const response = await axios.post('/api/admin/ssl/issue', {});
+      setSslMessage(response.data?.message || 'Issuance started');
+      fetchSslConfig();
+    } catch (error) {
+      console.error('Failed to start issuance:', error);
+      setSslError(error.response?.data?.error || 'Failed to start issuance');
+    } finally {
+      setSslProcessing(false);
+    }
+  };
+
+  const triggerRenewal = async () => {
+    setSslProcessing(true);
+    setSslMessage(null);
+    setSslError(null);
+    try {
+      const response = await axios.post('/api/admin/ssl/renew', {});
+      setSslMessage(response.data?.message || 'Renewal started');
+      fetchSslConfig();
+    } catch (error) {
+      console.error('Failed to start renewal:', error);
+      setSslError(error.response?.data?.error || 'Failed to start renewal');
+    } finally {
+      setSslProcessing(false);
+    }
+  };
+
+  const toggleHttpsEnforcement = async (enforce) => {
+    setSslProcessing(true);
+    setSslMessage(null);
+    setSslError(null);
+    try {
+      const response = await axios.post('/api/admin/ssl/enforce', { enforce });
+      setSslConfig(response.data?.ssl);
+      setSslMessage(enforce ? 'HTTPS enforced' : 'HTTPS disabled');
+    } catch (error) {
+      console.error('Failed to toggle HTTPS enforcement:', error);
+      setSslError(error.response?.data?.error || 'Failed to toggle HTTPS enforcement');
+    } finally {
+      setSslProcessing(false);
+    }
+  };
+
+  const triggerSslHealthCheck = async () => {
+    setSslProcessing(true);
+    setSslMessage(null);
+    setSslError(null);
+    try {
+      await axios.post('/api/admin/ssl/health-check', {});
+      setSslMessage('Health check scheduled');
+      await fetchSslConfig(false);
+      setTimeout(() => fetchSslConfig(false), 3000);
+      setTimeout(() => fetchSslConfig(false), 6000);
+    } catch (error) {
+      console.error('Failed to queue health check:', error);
+      setSslError(error.response?.data?.error || 'Failed to queue health check');
+    } finally {
+      setSslProcessing(false);
+    }
+  };
+
+  const handleSslFileChange = (field, files) => {
+    const file = files && files.length > 0 ? files[0] : null;
+    setSslUploadForm(prev => ({
+      ...prev,
+      [field]: file
+    }));
+  };
+
+  const currentSslMode = sslSettingsForm.mode || 'lets_encrypt';
+  const isLetsEncryptMode = currentSslMode === 'lets_encrypt';
+  const sslStatusLabel = sslConfig?.certificate_status || 'idle';
+  const canEnforceHttps = Boolean(
+    sslConfig && (
+      (sslConfig.mode === 'lets_encrypt' && sslConfig.certificate_status === 'verified') ||
+      (sslConfig.mode === 'uploaded' && sslConfig.uploaded?.available)
+    )
+  );
+  const formatDateTime = (value) => (value ? new Date(value).toLocaleString() : '—');
+
   const makeAdmin = async (userId) => {
     if (!window.confirm('Are you sure you want to make this user an admin?')) {
       return;
@@ -207,31 +387,60 @@ const AdminDashboard = () => {
     }
   };
 
-  const fetchS3Config = async () => {
+  const fetchS3Config = useCallback(async () => {
     try {
       const response = await axios.get('/api/admin/s3/config');
       if (response.data.configured) {
         setS3Config(response.data.config);
-        setS3Form({
-          ...s3Form,
+        setS3Form(prev => ({
+          ...prev,
           bucket_name: response.data.config.bucket_name,
           region: response.data.config.region,
           server_side_encryption: response.data.config.server_side_encryption
-        });
+        }));
       }
     } catch (error) {
       console.error('Failed to fetch S3 config:', error);
     }
-  };
+  }, []);
 
-  const fetchS3Stats = async () => {
+  const fetchS3Stats = useCallback(async () => {
     try {
       const response = await axios.get('/api/admin/s3/stats');
       setS3Stats(response.data);
     } catch (error) {
       console.error('Failed to fetch S3 stats:', error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchStats();
+    fetchUsers();
+    fetchParsers();
+    fetchAnalyses();
+    fetchS3Config();
+    fetchS3Stats();
+    fetchSslConfig();
+  }, [fetchStats, fetchUsers, fetchParsers, fetchAnalyses, fetchS3Config, fetchS3Stats, fetchSslConfig]);
+
+  useEffect(() => {
+    if (activeTab === 'analyses') {
+      fetchAnalyses();
+    }
+  }, [activeTab, fetchAnalyses]);
+
+  const sslStatus = sslConfig?.certificate_status;
+
+  useEffect(() => {
+    const pollStatuses = ['pending_issue', 'renewing'];
+    if (!sslStatus || !pollStatuses.includes(sslStatus)) {
+      return undefined;
+    }
+    const intervalId = setInterval(() => {
+      fetchSslConfig(false);
+    }, 5000);
+    return () => clearInterval(intervalId);
+  }, [sslStatus, fetchSslConfig]);
 
   const handleSaveS3Config = async (e) => {
     e.preventDefault();
@@ -365,6 +574,12 @@ const AdminDashboard = () => {
               onClick={() => setActiveTab('s3')}
             >
               S3 Storage
+            </button>
+            <button
+              className={`admin-tab ${activeTab === 'ssl' ? 'active' : ''}`}
+              onClick={() => setActiveTab('ssl')}
+            >
+              SSL
             </button>
           </div>
 
@@ -1101,6 +1316,261 @@ const AdminDashboard = () => {
                   <strong>Security:</strong> All files are encrypted at rest with AES-256. Download URLs are time-limited and expire after 1 hour.
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'ssl' && (
+            <div className="admin-content">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div>
+                  <h2 style={{ margin: 0 }}>SSL & HTTPS</h2>
+                  <p style={{ margin: '4px 0 0 0', color: '#6b7280', fontSize: '14px' }}>
+                  Manage certificate sources, Let's Encrypt automation, and HTTPS enforcement
+                  </p>
+                </div>
+                {sslConfig && (
+                  <span className={`status-badge ${sslConfig.enforce_https ? 'status-success' : 'status-info'}`} style={{ fontSize: '13px' }}>
+                    {sslConfig.enforce_https ? 'HTTPS Enforced' : 'HTTPS Optional'}
+                  </span>
+                )}
+              </div>
+
+              {sslError && (
+                <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '6px', background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c' }}>
+                  {sslError}
+                </div>
+              )}
+              {sslMessage && (
+                <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '6px', background: '#ecfdf5', border: '1px solid #bbf7d0', color: '#047857' }}>
+                  {sslMessage}
+                </div>
+              )}
+
+              {sslLoading ? (
+                <p>Loading SSL configuration…</p>
+              ) : (
+                <>
+                  <div className="card" style={{ marginBottom: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px' }}>
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Certificate Source</div>
+                        <div style={{ fontSize: '16px', fontWeight: '600', color: '#111827' }}>{currentSslMode === 'uploaded' ? 'Uploaded Certificate' : 'Let\'s Encrypt'}</div>
+                        <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                          {sslConfig?.primary_domain || 'No domain configured'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Certificate Status</div>
+                        <div style={{ fontSize: '16px', fontWeight: '600', color: sslStatusLabel === 'verified' ? '#059669' : '#111827' }}>
+                          {sslStatusLabel}
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                          Expires {formatDateTime(sslConfig?.expires_at)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Last Verified</div>
+                        <div style={{ fontSize: '16px', fontWeight: '600', color: '#111827' }}>
+                          {formatDateTime(sslConfig?.last_verified_at)}
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                          {sslConfig?.last_error ? `Last error: ${sslConfig.last_error}` : 'No recent errors'}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: '20px', display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                      {isLetsEncryptMode && (
+                        <>
+                          <button
+                            className="btn btn-primary"
+                            onClick={triggerIssuance}
+                            disabled={sslProcessing || !sslSettingsForm.primary_domain}
+                            type="button"
+                          >
+                            Request Certificate
+                          </button>
+                          <button
+                            className="btn btn-secondary"
+                            onClick={triggerRenewal}
+                            disabled={sslProcessing || sslStatusLabel === 'pending_issue'}
+                            type="button"
+                          >
+                            Force Renewal
+                          </button>
+                        </>
+                      )}
+                      <button
+                        className={`btn ${sslConfig?.enforce_https ? 'btn-warning' : 'btn-success'}`}
+                        onClick={() => toggleHttpsEnforcement(!sslConfig?.enforce_https)}
+                        disabled={sslProcessing || !canEnforceHttps}
+                        type="button"
+                      >
+                        {sslConfig?.enforce_https ? 'Disable HTTPS Enforcement' : 'Enable HTTPS Enforcement'}
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={triggerSslHealthCheck}
+                        disabled={sslProcessing}
+                        type="button"
+                      >
+                        Run Health Check
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="card" style={{ marginBottom: '20px' }}>
+                    <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600' }}>Certificate Settings</h3>
+                    <form onSubmit={submitSslSettings}>
+                      <div style={{ display: 'flex', gap: '20px', marginBottom: '16px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '500' }}>
+                          <input
+                            type="radio"
+                            name="ssl-mode"
+                            value="lets_encrypt"
+                            checked={sslSettingsForm.mode === 'lets_encrypt'}
+                            onChange={() => handleSslSettingsChange('mode', 'lets_encrypt')}
+                          />
+                          Let's Encrypt
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '500' }}>
+                          <input
+                            type="radio"
+                            name="ssl-mode"
+                            value="uploaded"
+                            checked={sslSettingsForm.mode === 'uploaded'}
+                            onChange={() => handleSslSettingsChange('mode', 'uploaded')}
+                          />
+                          Uploaded Certificate
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '500' }}>
+                          <input
+                            type="checkbox"
+                            checked={sslSettingsForm.auto_renew}
+                            onChange={(e) => handleSslSettingsChange('auto_renew', e.target.checked)}
+                            disabled={!isLetsEncryptMode}
+                          />
+                          Auto renew (Let's Encrypt)
+                        </label>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                        <div className="form-group">
+                          <label style={{ fontWeight: '500', marginBottom: '6px', display: 'block' }}>Primary Domain</label>
+                          <input
+                            type="text"
+                            placeholder="example.com"
+                            value={sslSettingsForm.primary_domain}
+                            onChange={(e) => handleSslSettingsChange('primary_domain', e.target.value)}
+                            disabled={sslProcessing}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label style={{ fontWeight: '500', marginBottom: '6px', display: 'block' }}>Alternate Domains (comma separated)</label>
+                          <input
+                            type="text"
+                            placeholder="www.example.com, api.example.com"
+                            value={sslSettingsForm.alternate_domains}
+                            onChange={(e) => handleSslSettingsChange('alternate_domains', e.target.value)}
+                            disabled={sslProcessing}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label style={{ fontWeight: '500', marginBottom: '6px', display: 'block' }}>Verification Host Override</label>
+                          <input
+                            type="text"
+                            placeholder="health.example.com"
+                            value={sslSettingsForm.verification_hostname}
+                            onChange={(e) => handleSslSettingsChange('verification_hostname', e.target.value)}
+                            disabled={sslProcessing}
+                            style={{ width: '100%' }}
+                          />
+                          <small style={{ display: 'block', marginTop: '6px', color: '#6b7280' }}>
+                            Optional host used to verify HTTPS after updates
+                          </small>
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: '20px', display: 'flex', gap: '12px' }}>
+                        <button type="submit" className="btn btn-primary" disabled={sslProcessing}>
+                          {sslProcessing ? 'Saving...' : 'Save SSL Settings'}
+                        </button>
+                        <button type="button" className="btn btn-secondary" onClick={fetchSslConfig} disabled={sslProcessing}>
+                          Refresh
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  {currentSslMode === 'uploaded' && (
+                    <div className="card" style={{ marginBottom: '20px' }}>
+                      <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600' }}>Upload Certificate Files</h3>
+                      <p style={{ marginBottom: '16px', color: '#6b7280', fontSize: '14px' }}>
+                        Provide PEM-encoded files. The certificate should include the full chain (server + intermediates). The private key must be unencrypted.
+                      </p>
+                      <form onSubmit={submitSslUpload}>
+                        <div className="form-group" style={{ marginBottom: '16px' }}>
+                          <label style={{ fontWeight: '500', marginBottom: '6px', display: 'block' }}>Full Chain Certificate (.pem, .crt)</label>
+                          <input
+                            type="file"
+                            accept=".pem,.crt,.cer,.txt"
+                            onChange={(e) => handleSslFileChange('certificate_file', e.target.files)}
+                            required
+                          />
+                          {sslUploadForm.certificate_file && (
+                            <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                              Selected: {sslUploadForm.certificate_file.name}
+                            </div>
+                          )}
+                        </div>
+                        <div className="form-group" style={{ marginBottom: '16px' }}>
+                          <label style={{ fontWeight: '500', marginBottom: '6px', display: 'block' }}>Private Key (.key, .pem)</label>
+                          <input
+                            type="file"
+                            accept=".key,.pem,.txt"
+                            onChange={(e) => handleSslFileChange('private_key_file', e.target.files)}
+                            required
+                          />
+                          {sslUploadForm.private_key_file && (
+                            <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                              Selected: {sslUploadForm.private_key_file.name}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ marginTop: '16px', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                          <button type="submit" className="btn btn-primary" disabled={sslProcessing}>
+                            {sslProcessing ? 'Uploading…' : 'Upload Certificate'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-link"
+                            onClick={() => setSslUploadForm({ certificate_file: null, private_key_file: null })}
+                            disabled={sslProcessing}
+                          >
+                            Clear selection
+                          </button>
+                          {sslConfig?.uploaded?.uploaded_at && (
+                            <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                              Last upload: {formatDateTime(sslConfig.uploaded.uploaded_at)}
+                            </span>
+                          )}
+                        </div>
+                      </form>
+                    </div>
+                  )}
+
+                  <div className="card" style={{ background: '#f9fafb', border: '1px solid #e5e7eb' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px' }}>Operational Notes</h3>
+                    <ul style={{ margin: 0, paddingLeft: '20px', color: '#6b7280', lineHeight: '1.8', fontSize: '13px' }}>
+                      <li>Let's Encrypt requires ports 80 and 443 to be reachable and DNS A records pointing to this server.</li>
+                      <li>Uploaded certificates should be renewed manually before expiry. The platform will warn when expiry is near.</li>
+                      <li>Enforcement redirects all HTTP requests to HTTPS and enables HSTS headers.</li>
+                      <li>Health checks validate that HTTPS is working; failures are logged in the backend audit trail.</li>
+                    </ul>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

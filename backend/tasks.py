@@ -2,11 +2,28 @@
 Celery background tasks
 """
 from celery_app import celery
+from celery.utils.log import get_task_logger
 from database import SessionLocal
-from models import LogFile, Analysis, DeletionLog
+from models import LogFile, Analysis, DeletionLog, SSLConfiguration
 from datetime import datetime, timedelta
 import os
 from storage_service import StorageFactory
+from config import Config
+from ssl_service import (
+    SSLConfigurationError,
+    cert_paths_exist,
+    disable_nginx_ssl_snippet,
+    get_lets_encrypt_live_paths,
+    normalize_domains,
+    read_certificate_metadata_from_path,
+    run_certbot,
+    verify_https_endpoint,
+    write_enforce_redirect,
+    write_http_redirect_snippet,
+)
+
+
+logger = get_task_logger(__name__)
 
 
 @celery.task(name='celery_app.cleanup_expired_files')
@@ -191,3 +208,256 @@ def hard_delete_old_soft_deletes():
         }
     finally:
         db.close()
+
+
+def _load_ssl_config(db, config_id):
+    return db.query(SSLConfiguration).filter(SSLConfiguration.id == config_id).first()
+
+
+from typing import Optional
+
+
+@celery.task(name='tasks.issue_ssl_certificate')
+def issue_ssl_certificate(config_id: int, staging: Optional[bool] = None):
+    """Request a new Let\'s Encrypt certificate via certbot."""
+    db = SessionLocal()
+    try:
+        ssl_config = _load_ssl_config(db, config_id)
+        if not ssl_config:
+            logger.error('SSL configuration %s not found for issuance', config_id)
+            return {'status': 'error', 'message': 'SSL configuration not found'}
+
+        domains = normalize_domains(ssl_config.primary_domain, ssl_config.alternate_domains or [])
+        if not domains:
+            logger.error('No domains configured for SSL issuance (config_id=%s)', config_id)
+            ssl_config.certificate_status = 'error'
+            ssl_config.last_error = 'No domains configured'
+            ssl_config.updated_at = datetime.utcnow()
+            db.commit()
+            return {'status': 'error', 'message': 'No domains configured'}
+
+        staging_flag = Config.SSL_STAGING if staging is None else staging
+        result = run_certbot(domains, Config.SSL_CERTBOT_EMAIL, staging_flag)
+        output = (result.stdout or '') + (result.stderr or '')
+
+        if result.returncode != 0:
+            logger.error('Certbot issuance failed (config_id=%s): %s', config_id, output)
+            ssl_config.certificate_status = 'error'
+            ssl_config.last_error = output[-2000:]
+            ssl_config.updated_at = datetime.utcnow()
+            db.commit()
+            return {
+                'status': 'error',
+                'message': 'Certbot failed',
+                'returncode': result.returncode,
+                'output': output[-4000:],
+            }
+
+        paths = get_lets_encrypt_live_paths(ssl_config.primary_domain)
+        if not cert_paths_exist(paths['certificate_path'], paths['private_key_path']):
+            raise SSLConfigurationError('Certificate material missing after certbot run')
+
+        metadata = read_certificate_metadata_from_path(paths['certificate_path'])
+        now = datetime.utcnow()
+        ssl_config.certificate_status = 'verified'
+        ssl_config.is_enabled = True
+        ssl_config.last_issued_at = now
+        ssl_config.last_verified_at = now
+        ssl_config.expires_at = metadata.expires_at if metadata else None
+        ssl_config.last_error = None
+        ssl_config.updated_at = now
+        db.commit()
+
+        logger.info('Certificate issued successfully for config_id=%s', config_id)
+        return {
+            'status': 'success',
+            'expires_at': ssl_config.expires_at.isoformat() if ssl_config.expires_at else None,
+            'output': result.stdout,
+        }
+
+    except Exception as exc:
+        logger.exception('Unexpected error during certificate issuance (config_id=%s)', config_id)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        db = SessionLocal()
+        ssl_config = _load_ssl_config(db, config_id)
+        if ssl_config:
+            ssl_config.certificate_status = 'error'
+            ssl_config.last_error = str(exc)
+            ssl_config.updated_at = datetime.utcnow()
+            db.commit()
+        db.close()
+        return {'status': 'error', 'message': str(exc)}
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+
+@celery.task(name='tasks.renew_ssl_certificate')
+def renew_ssl_certificate(config_id: int, force: bool = False):
+    """Renew an existing Let\'s Encrypt certificate."""
+    db = SessionLocal()
+    try:
+        ssl_config = _load_ssl_config(db, config_id)
+        if not ssl_config:
+            logger.error('SSL configuration %s not found for renewal', config_id)
+            return {'status': 'error', 'message': 'SSL configuration not found'}
+
+        if ssl_config.mode != 'lets_encrypt':
+            return {'status': 'skipped', 'message': 'SSL mode is not lets_encrypt'}
+
+        if not ssl_config.auto_renew and not force:
+            return {'status': 'skipped', 'message': 'Auto renew disabled'}
+
+        domains = normalize_domains(ssl_config.primary_domain, ssl_config.alternate_domains or [])
+        if not domains:
+            return {'status': 'error', 'message': 'No domains configured for renewal'}
+
+        # Skip renewal if certificate is far from expiry unless forced
+        now = datetime.utcnow()
+        if not force and ssl_config.expires_at and ssl_config.expires_at - now > timedelta(days=45):
+            logger.info('Skipping renewal; certificate still valid for >45 days (config_id=%s)', config_id)
+            ssl_config.certificate_status = 'verified'
+            ssl_config.updated_at = now
+            db.commit()
+            return {'status': 'skipped', 'message': 'Certificate not due for renewal'}
+
+        result = run_certbot(domains, Config.SSL_CERTBOT_EMAIL, Config.SSL_STAGING, force_renewal=True)
+        output = (result.stdout or '') + (result.stderr or '')
+
+        if result.returncode != 0:
+            logger.error('Certbot renewal failed (config_id=%s): %s', config_id, output)
+            ssl_config.certificate_status = 'error'
+            ssl_config.last_error = output[-2000:]
+            ssl_config.updated_at = datetime.utcnow()
+            db.commit()
+            return {'status': 'error', 'message': 'Certbot renewal failed', 'output': output[-4000:]}
+
+        paths = get_lets_encrypt_live_paths(ssl_config.primary_domain)
+        if not cert_paths_exist(paths['certificate_path'], paths['private_key_path']):
+            raise SSLConfigurationError('Certificate material missing after renewal')
+
+        metadata = read_certificate_metadata_from_path(paths['certificate_path'])
+        now = datetime.utcnow()
+        ssl_config.certificate_status = 'verified'
+        ssl_config.is_enabled = True
+        ssl_config.expires_at = metadata.expires_at if metadata else None
+        ssl_config.last_verified_at = now
+        ssl_config.last_error = None
+        ssl_config.updated_at = now
+        db.commit()
+
+        logger.info('Certificate renewed successfully (config_id=%s)', config_id)
+        return {'status': 'success', 'expires_at': ssl_config.expires_at.isoformat() if ssl_config.expires_at else None}
+
+    except Exception as exc:
+        logger.exception('Unexpected error during certificate renewal (config_id=%s)', config_id)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        db = SessionLocal()
+        ssl_config = _load_ssl_config(db, config_id)
+        if ssl_config:
+            ssl_config.certificate_status = 'error'
+            ssl_config.last_error = str(exc)
+            ssl_config.updated_at = datetime.utcnow()
+            db.commit()
+        db.close()
+        return {'status': 'error', 'message': str(exc)}
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+
+@celery.task(name='tasks.schedule_ssl_renewal')
+def schedule_ssl_renewal(force: bool = False):
+    """Queue a renewal if Let\'s Encrypt auto-renew is enabled."""
+    db = SessionLocal()
+    try:
+        ssl_config = db.query(SSLConfiguration).first()
+        if not ssl_config:
+            return {'status': 'skipped', 'message': 'No SSL configuration'}
+        if ssl_config.mode != 'lets_encrypt':
+            return {'status': 'skipped', 'message': 'SSL mode is not lets_encrypt'}
+        if not ssl_config.auto_renew and not force:
+            return {'status': 'skipped', 'message': 'Auto renew disabled'}
+        renew_ssl_certificate.delay(ssl_config.id, force)
+        return {'status': 'queued'}
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+
+@celery.task(name='tasks.schedule_ssl_health_check')
+def schedule_ssl_health_check(force_disable: bool = False):
+    """Queue a HTTPS health verification if SSL is enabled."""
+    db = SessionLocal()
+    try:
+        ssl_config = db.query(SSLConfiguration).first()
+        if not ssl_config:
+            return {'status': 'skipped', 'message': 'No SSL configuration'}
+        if not ssl_config.is_enabled and not ssl_config.enforce_https:
+            return {'status': 'skipped', 'message': 'SSL not enabled'}
+        verify_ssl_health.delay(ssl_config.id, force_disable)
+        return {'status': 'queued'}
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+
+@celery.task(name='tasks.verify_ssl_health')
+def verify_ssl_health(config_id: int, force_disable: bool = False):
+    """Check HTTPS endpoint availability and optionally disable enforcement on failure."""
+    db = SessionLocal()
+    try:
+        ssl_config = _load_ssl_config(db, config_id)
+        if not ssl_config:
+            return {'status': 'error', 'message': 'SSL configuration not found'}
+
+        host = ssl_config.verification_hostname or ssl_config.primary_domain
+        if not host:
+            return {'status': 'skipped', 'message': 'No verification host configured'}
+
+        try:
+            verify_https_endpoint(host, Config.SSL_HEALTHCHECK_PATH)
+            ssl_config.last_verified_at = datetime.utcnow()
+            ssl_config.last_error = None
+            ssl_config.certificate_status = 'verified'
+            ssl_config.updated_at = datetime.utcnow()
+            db.commit()
+            return {'status': 'success', 'host': host}
+        except Exception as exc:
+            message = str(exc)
+            ssl_config.last_error = message
+            ssl_config.updated_at = datetime.utcnow()
+            db.commit()
+            logger.error('SSL health check failed for %s: %s', host, message)
+
+            if force_disable and ssl_config.enforce_https:
+                try:
+                    disable_nginx_ssl_snippet()
+                    write_enforce_redirect(False)
+                    write_http_redirect_snippet(False)
+                    ssl_config.enforce_https = False
+                    db.commit()
+                except Exception as revert_exc:
+                    logger.exception('Failed to disable HTTPS after health failure: %s', revert_exc)
+
+            return {'status': 'error', 'message': message}
+
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass

@@ -20,6 +20,7 @@
 - ✅ **Rate Limiting**: Added to login (5/min) and upload (10/hr)
 - ✅ **JWT Session Validation**: Tokens validated against database on every request
 - ✅ **Stronger Passwords**: Now requires 12+ chars, uppercase, lowercase, number, special char
+- ✅ **HTTPS Automation**: Admins can issue Let\'s Encrypt certificates or upload custom PEM bundles with automatic renewal checks
 
 ---
 
@@ -128,7 +129,22 @@ for i in {1..6}; do
 done
 ```
 
-### Step 6: Update Default Admin Password
+### Step 6: Configure HTTPS (recommended)
+
+1. **Decide on certificate source**
+   - *Let\'s Encrypt*: point your DNS A/AAAA records to the host running NGL and ensure ports 80 and 443 are open.
+   - *Uploaded certificate*: prepare a PEM-encoded private key and full chain bundle.
+2. In the Admin dashboard, open the new **SSL** tab:
+   - Enter your primary domain plus optional SANs and choose `Let\'s Encrypt` or `Uploaded certificate`.
+   - For Let\'s Encrypt, click **Request Certificate**. The platform places ACME challenges under `/.well-known/acme-challenge` and stores keys in the shared `certbot_certs` volume.
+   - For uploads, paste the key and certificate PEM blocks. Files are stored encrypted on disk and mirrored into the nginx runtime volume.
+3. Once the certificate status shows **verified**, enable HTTPS enforcement. The runtime will begin redirecting HTTP traffic to HTTPS and add HSTS headers.
+4. Renewals:
+   - Let\'s Encrypt certificates auto-renew via Celery daily checks (renew when <30 days). Ensure the backend container can reach the ACME service.
+   - Uploaded certificates trigger warnings as they approach expiry; upload a replacement before the expiry date.
+5. Validation: use the **Run Health Check** button or manually verify with `curl -I https://your-domain/api/health`.
+
+### Step 7: Update Default Admin Password
 
 **⚠️ CRITICAL: The default admin password no longer meets the new requirements!**
 
