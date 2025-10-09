@@ -58,3 +58,4 @@ class Config:
     SSL_VERIFICATION_HOST = os.getenv('SSL_VERIFICATION_HOST')
     SSL_AUTO_RENEW = os.getenv('SSL_AUTO_RENEW', 'true').lower() == 'true'
     SSL_ENCRYPTION_KEY = os.getenv('SSL_ENCRYPTION_KEY')
+    SSL_ALLOW_OPTIONAL_HTTPS = os.getenv('SSL_ALLOW_OPTIONAL_HTTPS', 'true').lower() == 'true'

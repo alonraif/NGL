@@ -27,6 +27,8 @@ SSL_FALLBACK_SNIPPET_PATH = os.path.join(NGINX_RUNTIME_DIR, SSL_FALLBACK_SNIPPET
 SSL_REDIRECT_FILENAME = os.getenv('SSL_REDIRECT_FILENAME', 'ssl-redirect.conf')
 SSL_REDIRECT_PATH = os.path.join(NGINX_RUNTIME_DIR, SSL_REDIRECT_FILENAME)
 NGINX_PID_PATH = os.getenv('NGINX_PID_PATH', os.path.join(NGINX_RUNTIME_DIR, 'nginx.pid'))
+HTTPS_REDIRECT_STATUS = int(os.getenv('HTTPS_REDIRECT_STATUS', '308'))
+FORCE_DISABLE_HTTPS = os.getenv('FORCE_DISABLE_HTTPS_ENFORCEMENT', 'false').lower() == 'true'
 
 DOMAIN_REGEX = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)"
@@ -208,11 +210,13 @@ def disable_nginx_ssl_snippet() -> None:
 def write_http_redirect_snippet(enabled: bool) -> None:
     """Create or remove the HTTP→HTTPS redirect snippet."""
     ensure_directories()
-    if enabled:
-        _write_secure_file(SSL_REDIRECT_PATH, 'return 301 https://$host$request_uri;\n', mode=0o644)
-    else:
+    if FORCE_DISABLE_HTTPS or not enabled:
         if os.path.exists(SSL_REDIRECT_PATH):
             os.remove(SSL_REDIRECT_PATH)
+        return
+
+    snippet = f'return {HTTPS_REDIRECT_STATUS} https://$host$request_uri;\n'
+    _write_secure_file(SSL_REDIRECT_PATH, snippet, mode=0o644)
 
 
 def reload_nginx() -> None:
@@ -326,6 +330,7 @@ def run_certbot(
 def write_enforce_redirect(enabled: bool) -> None:
     """Write a small JSON file capturing HTTPS enforcement state for other services."""
     ensure_directories()
-    payload = json.dumps({'enforce_https': enabled, 'updated_at': datetime.utcnow().isoformat()})
+    effective = False if FORCE_DISABLE_HTTPS else enabled
+    payload = json.dumps({'enforce_https': effective, 'updated_at': datetime.utcnow().isoformat()})
     info_path = os.path.join(NGINX_RUNTIME_DIR, 'ssl_state.json')
     _write_secure_file(info_path, payload, mode=0o644)

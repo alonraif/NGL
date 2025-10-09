@@ -62,6 +62,10 @@ os.makedirs(TEMP_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max
 
+# HTTPS enforcement controls
+HTTP_TO_HTTPS_REDIRECT_CODE = int(os.getenv('HTTPS_REDIRECT_STATUS', '308'))
+FORCE_DISABLE_HTTPS = os.getenv('FORCE_DISABLE_HTTPS_ENFORCEMENT', 'false').lower() == 'true'
+
 SSL_STATE_PATH = os.getenv('SSL_STATE_PATH', '/etc/nginx/runtime/ssl_state.json')
 SSL_CACHE_TTL = int(os.getenv('SSL_STATE_CACHE_TTL', '5'))
 _ssl_enforce_cache = {
@@ -81,6 +85,8 @@ def _read_ssl_state_file():
 
 def is_https_enforced(force_refresh: bool = False) -> bool:
     """Return whether HTTPS enforcement is currently active."""
+    if FORCE_DISABLE_HTTPS:
+        return False
     now = time.time()
     if force_refresh or (now - _ssl_enforce_cache['checked_at'] > SSL_CACHE_TTL):
         state = _read_ssl_state_file()
@@ -101,6 +107,8 @@ def is_https_enforced(force_refresh: bool = False) -> bool:
 @app.before_request
 def redirect_to_https():
     """Force HTTPS when enforcement is enabled."""
+    if FORCE_DISABLE_HTTPS:
+        return
     if request.path.startswith('/.well-known/acme-challenge/'):
         # Allow ACME HTTP-01 challenges to pass through
         return
@@ -110,14 +118,17 @@ def redirect_to_https():
 
     if is_https_enforced():
         url = request.url.replace('http://', 'https://', 1)
-        return redirect(url, code=301)
+        return redirect(url, code=HTTP_TO_HTTPS_REDIRECT_CODE)
 
 
 @app.after_request
 def add_hsts_header(response):
     """Add HSTS header when HTTPS is enforced."""
-    if is_https_enforced():
+    if not FORCE_DISABLE_HTTPS and is_https_enforced():
         response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    else:
+        # Explicitly expire any cached HSTS policy when enforcement is off
+        response.headers.setdefault('Strict-Transport-Security', 'max-age=0')
     return response
 
 PARSE_MODES = [

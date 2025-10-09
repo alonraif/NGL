@@ -159,6 +159,28 @@ docker-compose up --build -d backend
 
 **Cause:** No matching data found in log file.
 
+## Authentication Issues
+
+### Login fails right after enabling HTTPS enforcement
+
+**Symptoms:** Login/API calls from the browser fail immediately after toggling **Enforce HTTPS** in the admin dashboard. Browser devtools show the original request redirected (HTTP 301) to `https://…/api/auth/login`, followed by a `405 Method Not Allowed` or a blank JSON error.
+
+**Cause:** Older runtime builds returned a `301` from Flask and Nginx when redirecting HTTP→HTTPS. Browsers replay `POST`/`PUT` requests as `GET` on a `301`, so the login body was dropped once HTTPS was enforced.
+
+**Fix (already patched in codebase):**
+- Flask now issues a `308` redirect that preserves the HTTP method/body.
+- The SSL redirect snippet written for Nginx also defaults to status `308`. You can override with `HTTPS_REDIRECT_STATUS` if your ingress needs a different code.
+
+**Apply the fix to an existing deployment:**
+1. Pull/rebuild the updated backend container so the new redirect handler is in place.
+2. Regenerate the Nginx snippet (either toggle **Enforce HTTPS** off/on in the admin UI or run `docker-compose restart frontend` after redeploy so `/etc/nginx/runtime/ssl-redirect.conf` is rewritten).
+3. Clear browser caches if an old HSTS/redirect is cached, then retry login over `https://`.
+
+**Need to temporarily disable HTTPS during maintenance?**
+- Set `FORCE_DISABLE_HTTPS_ENFORCEMENT=true` in your `.env`, redeploy backend/frontend, and NGL will automatically stop redirecting or advertising enforced HTTPS until you flip it back.
+- Want HTTPS to stay available while still allowing HTTP? Leave `SSL_ALLOW_OPTIONAL_HTTPS=true`, toggle **Enforce HTTPS** off in the admin UI (or call `/api/admin/ssl/enforce` with `{"enforce": false}`), and the cert-backed 443 listener stays up while redirects remain off.
+- Browser still bouncing you back to HTTPS after disabling enforcement? That means it cached the previous HSTS header. Redeploy with enforcement off (or `FORCE_DISABLE_HTTPS_ENFORCEMENT=true`) and refresh using a new session—NGL now sends `Strict-Transport-Security: max-age=0`, but you may still need to clear the browser’s HSTS cache or use an incognito window the first time.
+
 **Solutions:**
 
 1. **Try different parse mode:**

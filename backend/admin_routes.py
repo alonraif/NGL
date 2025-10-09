@@ -1399,12 +1399,34 @@ def toggle_ssl_enforcement(current_user, db):
             write_http_redirect_snippet(True)
 
         else:
-            disable_nginx_ssl_snippet()
             write_http_redirect_snippet(False)
-            try:
-                verify_ssl_health.delay(ssl_config.id, False)
-            except Exception:
-                pass
+
+            if Config.SSL_ALLOW_OPTIONAL_HTTPS:
+                if ssl_config.mode == 'lets_encrypt':
+                    if not ssl_config.primary_domain:
+                        return jsonify({'error': 'Configure a primary domain before enabling HTTPS access'}), 400
+                    paths = get_lets_encrypt_live_paths(ssl_config.primary_domain)
+                else:
+                    paths = {
+                        'certificate_path': ssl_config.uploaded_certificate_path,
+                        'private_key_path': ssl_config.uploaded_private_key_path,
+                    }
+
+                cert_path = paths.get('certificate_path')
+                key_path = paths.get('private_key_path')
+
+                if not cert_paths_exist(cert_path, key_path):
+                    return jsonify({'error': 'Certificate files not found. Issue or upload a certificate before enabling HTTPS access.'}), 400
+
+                write_nginx_ssl_snippet(ssl_config.mode, cert_path, key_path)
+                ssl_config.is_enabled = True
+            else:
+                disable_nginx_ssl_snippet()
+                try:
+                    verify_ssl_health.delay(ssl_config.id, False)
+                except Exception:
+                    pass
+
             ssl_config.enforce_https = False
             write_enforce_redirect(False)
 
