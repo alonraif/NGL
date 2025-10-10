@@ -1,26 +1,19 @@
-import React, { useCallback, useState } from 'react';
-import { useDropzone } from 'react-dropzone';
+import React, { useState, useRef } from 'react';
 
 function FileUpload({ onFileSelect }) {
   const [uploadMode, setUploadMode] = useState('file'); // 'file' or 'url'
   const [url, setUrl] = useState('');
+  const fileInputRef = useRef(null);
 
-  const onDrop = useCallback((acceptedFiles) => {
-    if (acceptedFiles.length > 0) {
-      onFileSelect(acceptedFiles[0]);
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      onFileSelect(e.target.files[0]);
     }
-  }, [onFileSelect]);
+  };
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'application/x-bzip2': ['.bz2'],
-      'application/x-tar': ['.tar'],
-    },
-    multiple: false,
-    noClick: uploadMode === 'url', // Disable click when in URL mode
-    noDrag: uploadMode === 'url',  // Disable drag when in URL mode
-  });
+  const handleBrowseClick = () => {
+    fileInputRef.current?.click();
+  };
 
   const handleUrlSubmit = (e) => {
     e.preventDefault();
@@ -29,7 +22,7 @@ function FileUpload({ onFileSelect }) {
       onFileSelect({
         type: 'url',
         url: url.trim(),
-        name: url.trim().split('/').pop() || 'remote-file'
+        name: url.trim().split('/').pop().split('?')[0] || 'remote-file'
       });
     }
   };
@@ -39,127 +32,83 @@ function FileUpload({ onFileSelect }) {
   };
 
   return (
-    <div>
+    <div className="file-upload-container">
       {/* Upload Mode Toggle */}
-      <div style={{
-        display: 'flex',
-        gap: '12px',
-        marginBottom: '16px',
-        borderBottom: '2px solid #e5e7eb',
-        paddingBottom: '8px'
-      }}>
+      <div className="upload-mode-toggle">
         <button
           type="button"
           onClick={() => setUploadMode('file')}
-          style={{
-            padding: '8px 16px',
-            background: uploadMode === 'file' ? '#3b82f6' : 'transparent',
-            color: uploadMode === 'file' ? 'white' : '#6b7280',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontWeight: uploadMode === 'file' ? '600' : '400',
-            transition: 'all 0.2s'
-          }}
+          className={`mode-button ${uploadMode === 'file' ? 'active' : ''}`}
         >
-          📁 Upload File
+          <span className="mode-icon">📁</span>
+          <span className="mode-label">Select File</span>
         </button>
         <button
           type="button"
           onClick={() => setUploadMode('url')}
-          style={{
-            padding: '8px 16px',
-            background: uploadMode === 'url' ? '#3b82f6' : 'transparent',
-            color: uploadMode === 'url' ? 'white' : '#6b7280',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontWeight: uploadMode === 'url' ? '600' : '400',
-            transition: 'all 0.2s'
-          }}
+          className={`mode-button ${uploadMode === 'url' ? 'active' : ''}`}
         >
-          🔗 From URL
+          <span className="mode-icon">🔗</span>
+          <span className="mode-label">From URL</span>
         </button>
       </div>
 
       {/* File Upload Mode */}
       {uploadMode === 'file' && (
-        <div {...getRootProps()} className={`dropzone ${isDragActive ? 'active' : ''}`}>
-          <input {...getInputProps()} />
-          <div className="dropzone-content">
-            <div className="upload-icon">📦</div>
-            {isDragActive ? (
-              <p>Drop the file here...</p>
-            ) : (
-              <>
-                <p><strong>Drag & drop a log file here, or click to select</strong></p>
-                <p style={{ fontSize: '0.9rem', color: '#666' }}>
-                  Supported formats: .tar.bz2, .bz2
-                </p>
-              </>
-            )}
+        <div className="upload-content">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".tar.bz2,.bz2,.tar.gz,.gz"
+            onChange={handleFileChange}
+            style={{ display: 'none' }}
+          />
+          <div className="upload-area">
+            <div className="upload-icon-large">📦</div>
+            <h3 className="upload-title">Select Log File</h3>
+            <p className="upload-subtitle">
+              Choose a compressed log file from your computer
+            </p>
+            <button
+              type="button"
+              onClick={handleBrowseClick}
+              className="browse-button"
+            >
+              Browse Files
+            </button>
+            <p className="upload-formats">
+              Supported formats: .tar.bz2, .bz2, .tar.gz, .gz
+            </p>
           </div>
         </div>
       )}
 
       {/* URL Upload Mode */}
       {uploadMode === 'url' && (
-        <div style={{
-          padding: '32px',
-          border: '2px solid #d1d5db',
-          borderRadius: '8px',
-          background: '#f9fafb'
-        }}>
-          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '12px' }}>🔗</div>
-            <p style={{ fontWeight: '600', marginBottom: '8px' }}>
-              Enter Log File URL
+        <div className="upload-content">
+          <div className="upload-area">
+            <div className="upload-icon-large">🔗</div>
+            <h3 className="upload-title">Enter Log File URL</h3>
+            <p className="upload-subtitle">
+              Provide a direct link to a compressed log file
             </p>
-            <p style={{ fontSize: '0.9rem', color: '#666' }}>
-              Provide a direct link to a .tar.bz2 or .bz2 file
+            <form onSubmit={handleUrlSubmit} className="url-form">
+              <input
+                type="url"
+                value={url}
+                onChange={handleUrlChange}
+                placeholder="https://example.com/logfile.tar.bz2"
+                required
+                className="url-input"
+              />
+              <button type="submit" className="url-submit-button">
+                Load from URL
+              </button>
+            </form>
+            <p className="upload-formats">
+              Supported formats: .tar.bz2, .bz2, .tar.gz, .gz
             </p>
           </div>
-
-          <form onSubmit={handleUrlSubmit} style={{ display: 'flex', gap: '8px' }}>
-            <input
-              type="url"
-              value={url}
-              onChange={handleUrlChange}
-              placeholder="https://example.com/logfile.tar.bz2"
-              required
-              style={{
-                flex: 1,
-                padding: '10px 12px',
-                border: '1px solid #d1d5db',
-                borderRadius: '6px',
-                fontSize: '14px'
-              }}
-            />
-            <button
-              type="submit"
-              style={{
-                padding: '10px 20px',
-                background: '#3b82f6',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontWeight: '600',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              Load URL
-            </button>
-          </form>
-
-          <p style={{
-            fontSize: '0.85rem',
-            color: '#9ca3af',
-            marginTop: '12px',
-            textAlign: 'center'
-          }}>
-            The file will be downloaded and processed from the provided URL
-          </p>
         </div>
       )}
     </div>
