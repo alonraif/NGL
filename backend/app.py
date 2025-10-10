@@ -624,14 +624,18 @@ def download_log_file(analysis_id, current_user, db):
 
         # Handle download based on storage type
         if log_file.storage_type == 's3':
-            # Get S3 presigned URL and redirect
+            # Get S3 presigned URL and return it in JSON (avoid CORS issues with redirect)
             try:
                 storage_service = StorageFactory.get_storage_service()
                 if storage_service.get_storage_type() == 's3':
                     presigned_url = storage_service.get_file(log_file.file_path)
                     if presigned_url:
-                        # Redirect to presigned URL
-                        return redirect(presigned_url)
+                        # Return URL in JSON for client-side redirect (avoids CORS)
+                        return jsonify({
+                            'download_url': presigned_url,
+                            'filename': log_file.original_filename,
+                            'storage_type': 's3'
+                        }), 200
                     else:
                         return jsonify({'error': 'Failed to generate download URL'}), 500
                 else:
