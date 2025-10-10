@@ -84,16 +84,24 @@ const AnalysisHistory = () => {
     try {
       const response = await axios.get(`/api/analyses/${analysisId}/download`);
 
+      console.log('[Download] Response type:', typeof response.data);
+      console.log('[Download] Has download_url:', !!response.data?.download_url);
+      console.log('[Download] Response data:', response.data);
+
       // Check if response contains S3 download URL (JSON response)
       if (response.data && response.data.download_url) {
         // S3 file - open presigned URL directly (avoids CORS)
-        // Note: Don't use target="_blank" as it prevents download attribute from working
+        console.log('[Download] Opening S3 URL:', response.data.download_url.substring(0, 100) + '...');
         window.location.href = response.data.download_url;
       } else {
         // Local file - handle as blob
+        console.log('[Download] Downloading as blob, size:', response.data.size);
         const blobResponse = await axios.get(`/api/analyses/${analysisId}/download`, {
           responseType: 'blob'
         });
+
+        console.log('[Download] Blob size:', blobResponse.data.size);
+        console.log('[Download] Blob type:', blobResponse.data.type);
 
         const url = window.URL.createObjectURL(new Blob([blobResponse.data]));
         const link = document.createElement('a');
