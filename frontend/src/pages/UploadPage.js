@@ -207,7 +207,16 @@ function UploadPage() {
 
       try {
         const formData = new FormData();
-        formData.append('file', file);
+
+        // Check if this is a URL upload or file upload
+        if (file.type === 'url') {
+          // URL-based upload
+          formData.append('file_url', file.url);
+        } else {
+          // Traditional file upload
+          formData.append('file', file);
+        }
+
         formData.append('parse_mode', mode);
         formData.append('session_name', sessionName);
         if (zendeskCase.trim()) {
@@ -380,8 +389,20 @@ function UploadPage() {
               <FileUpload onFileSelect={handleFileSelect} />
               {file && (
                 <div className="file-info">
-                  <p><strong>Selected file:</strong> {file.name}</p>
-                  <p><strong>Size:</strong> {(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                  {file.type === 'url' ? (
+                    <>
+                      <p><strong>Source:</strong> URL</p>
+                      <p><strong>File:</strong> {file.name}</p>
+                      <p style={{ fontSize: '0.85rem', wordBreak: 'break-all', color: '#666' }}>
+                        {file.url}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p><strong>Selected file:</strong> {file.name}</p>
+                      <p><strong>Size:</strong> {(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                    </>
+                  )}
                 </div>
               )}
             </div>

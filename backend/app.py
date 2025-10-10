@@ -12,6 +12,8 @@ import traceback
 import signal
 import redis
 import threading
+import requests
+import tempfile
 from parsers import get_parser
 from parsers.base import CancellationException
 from database import init_db, SessionLocal
@@ -218,16 +220,77 @@ def upload_file(current_user, db):
     start_time = time.time()
 
     try:
-        # Validate file upload
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file provided'}), 400
+        # Check if this is a URL upload or file upload
+        file_url = request.form.get('file_url', '').strip()
 
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+        if file_url:
+            # URL-based upload
+            app.logger.info(f"URL-based upload requested: {file_url}")
 
-        if not allowed_file(file.filename):
-            return jsonify({'error': 'Invalid file type. Please upload .tar.bz2, .bz2, .tar.gz, or .gz files'}), 400
+            # Validate URL format
+            if not file_url.startswith(('http://', 'https://')):
+                return jsonify({'error': 'Invalid URL. Must start with http:// or https://'}), 400
+
+            # Extract filename from URL
+            filename = file_url.split('/')[-1].split('?')[0]  # Remove query params
+            if not filename or not allowed_file(filename):
+                return jsonify({'error': 'URL must point to a valid log file (.tar.bz2, .bz2, .tar.gz, or .gz)'}), 400
+
+            # Download file from URL with timeout and size limit
+            try:
+                app.logger.info(f"Downloading file from: {file_url}")
+                response = requests.get(file_url, stream=True, timeout=300)  # 5 minute timeout
+                response.raise_for_status()
+
+                # Check content length if available
+                content_length = response.headers.get('content-length')
+                if content_length and int(content_length) > app.config['MAX_CONTENT_LENGTH']:
+                    return jsonify({'error': 'File too large. Maximum size is 500MB'}), 400
+
+                # Create temporary file to store downloaded content
+                temp_fd, temp_filepath = tempfile.mkstemp(suffix='.tmp', dir=TEMP_FOLDER)
+                file_size = 0
+
+                try:
+                    with os.fdopen(temp_fd, 'wb') as temp_file:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                temp_file.write(chunk)
+                                file_size += len(chunk)
+                                # Check size during download
+                                if file_size > app.config['MAX_CONTENT_LENGTH']:
+                                    raise Exception('File size exceeds maximum allowed size')
+
+                    app.logger.info(f"Downloaded {file_size} bytes to {temp_filepath}")
+
+                except Exception as e:
+                    # Clean up temp file on download error
+                    if os.path.exists(temp_filepath):
+                        os.remove(temp_filepath)
+                    raise e
+
+            except requests.exceptions.Timeout:
+                return jsonify({'error': 'Download timeout. File took too long to download.'}), 408
+            except requests.exceptions.HTTPError as e:
+                return jsonify({'error': f'Failed to download file: HTTP {e.response.status_code}'}), 400
+            except requests.exceptions.RequestException as e:
+                return jsonify({'error': f'Failed to download file: {str(e)}'}), 400
+            except Exception as e:
+                return jsonify({'error': f'Download error: {str(e)}'}), 500
+
+        else:
+            # Traditional file upload
+            if 'file' not in request.files:
+                return jsonify({'error': 'No file or URL provided'}), 400
+
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+
+            if not allowed_file(file.filename):
+                return jsonify({'error': 'Invalid file type. Please upload .tar.bz2, .bz2, .tar.gz, or .gz files'}), 400
+
+            filename = secure_filename(file.filename)
 
         # Get parameters
         parse_mode = request.form.get('parse_mode', 'known')
@@ -241,21 +304,36 @@ def upload_file(current_user, db):
         if not session_name:
             return jsonify({'error': 'Session name is required'}), 400
 
-        # Check storage quota
-        file.seek(0, 2)  # Seek to end
-        file_size = file.tell()
-        file.seek(0)  # Seek back to start
-        file_size_mb = file_size / (1024 * 1024)
+        # Handle file size and quota differently for URL vs file upload
+        if file_url:
+            # URL download - file_size and temp_filepath already set above
+            file_size_mb = file_size / (1024 * 1024)
+            # filename already extracted from URL
+            # temp_filepath already created during download
+        else:
+            # File upload - get size and save
+            file.seek(0, 2)  # Seek to end
+            file_size = file.tell()
+            file.seek(0)  # Seek back to start
+            file_size_mb = file_size / (1024 * 1024)
 
+            # Save uploaded file temporarily for validation and parsing
+            timestamp = int(time.time())
+            stored_filename = f"{timestamp}_{filename}"
+            temp_filepath = os.path.join(app.config['UPLOAD_FOLDER'], stored_filename)
+            file.save(temp_filepath)
+
+        # Check storage quota (applies to both URL and file uploads)
         if current_user.storage_used_mb + file_size_mb > current_user.storage_quota_mb:
+            # Clean up temp file if URL download
+            if file_url and os.path.exists(temp_filepath):
+                os.remove(temp_filepath)
             return jsonify({'error': 'Storage quota exceeded'}), 400
 
-        # Save uploaded file temporarily for validation and parsing
-        filename = secure_filename(file.filename)
-        timestamp = int(time.time())
-        stored_filename = f"{timestamp}_{filename}"
-        temp_filepath = os.path.join(app.config['UPLOAD_FOLDER'], stored_filename)
-        file.save(temp_filepath)
+        # Generate stored filename if not already set (for URL uploads)
+        if file_url:
+            timestamp = int(time.time())
+            stored_filename = f"{timestamp}_{secure_filename(filename)}"
 
         # Validate file type using magic bytes
         if not validate_file_type(temp_filepath):
