@@ -262,7 +262,8 @@ function UploadPage() {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
-          signal: controller.signal
+          signal: controller.signal,
+          timeout: 1800000  // 30 minutes timeout for large file processing
         });
         const processingTime = (Date.now() - startTime) / 1000;
 
