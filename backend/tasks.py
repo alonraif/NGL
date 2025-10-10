@@ -26,7 +26,7 @@ from ssl_service import (
 logger = get_task_logger(__name__)
 
 
-@celery.task(name='celery_app.cleanup_expired_files')
+@celery.task(name='tasks.cleanup_expired_files')
 def cleanup_expired_files():
     """
     Clean up expired log files and analyses
@@ -112,7 +112,7 @@ def cleanup_expired_files():
         db.close()
 
 
-@celery.task(name='celery_app.hard_delete_old_soft_deletes')
+@celery.task(name='tasks.hard_delete_old_soft_deletes')
 def hard_delete_old_soft_deletes():
     """
     Permanently delete files that have been soft-deleted for > 90 days
