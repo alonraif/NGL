@@ -628,7 +628,7 @@ def download_log_file(analysis_id, current_user, db):
             try:
                 storage_service = StorageFactory.get_storage_service()
                 if storage_service.get_storage_type() == 's3':
-                    presigned_url = storage_service.get_file(log_file.file_path)
+                    presigned_url = storage_service.get_file(log_file.file_path, log_file.original_filename)
                     if presigned_url:
                         # Return URL in JSON for client-side redirect (avoids CORS)
                         return jsonify({

@@ -183,16 +183,23 @@ class S3StorageService(StorageService):
             logger.error(f"Unexpected error uploading to S3: {str(e)}")
             raise
 
-    def get_file(self, s3_key: str) -> Optional[str]:
+    def get_file(self, s3_key: str, original_filename: str = None) -> Optional[str]:
         """Get presigned URL for S3 file"""
         try:
+            # Prepare params for presigned URL
+            params = {
+                'Bucket': self.config.bucket_name,
+                'Key': s3_key
+            }
+
+            # Add Content-Disposition to force download with original filename
+            if original_filename:
+                params['ResponseContentDisposition'] = f'attachment; filename="{original_filename}"'
+
             # Generate presigned URL (expires in 1 hour)
             url = self.s3_client.generate_presigned_url(
                 'get_object',
-                Params={
-                    'Bucket': self.config.bucket_name,
-                    'Key': s3_key
-                },
+                Params=params,
                 ExpiresIn=3600  # 1 hour
             )
 
