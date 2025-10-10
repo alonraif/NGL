@@ -214,6 +214,38 @@ def get_parse_modes(current_user, db):
 
     return jsonify(available_modes)
 
+
+@app.route('/api/download-progress', methods=['GET'])
+@token_required
+def get_download_progress(current_user, db):
+    """Get current download progress for URL uploads"""
+    try:
+        progress_key = f"download_progress:{current_user.id}"
+        progress_data = redis_client.get(progress_key)
+
+        if not progress_data:
+            return jsonify({'downloading': False}), 200
+
+        # Parse progress data: "downloaded:total:percent"
+        parts = progress_data.split(':')
+        if len(parts) >= 3:
+            downloaded = int(parts[0])
+            total = int(parts[1]) if parts[1] != 'None' else None
+            percent = float(parts[2])
+
+            return jsonify({
+                'downloading': True,
+                'downloaded': downloaded,
+                'total': total,
+                'percent': percent
+            }), 200
+        else:
+            return jsonify({'downloading': False}), 200
+
+    except Exception as e:
+        app.logger.error(f"Error getting download progress: {str(e)}")
+        return jsonify({'downloading': False}), 200
+
 def calculate_file_hash(filepath):
     """Calculate SHA256 hash of file"""
     sha256_hash = hashlib.sha256()
@@ -236,15 +268,20 @@ def upload_file(current_user, db):
 
         if file_url:
             # URL-based upload
+            # Clean the URL (remove backslashes, extra whitespace)
+            file_url = file_url.replace('\\', '').strip()
             app.logger.info(f"URL-based upload requested: {file_url}")
 
             # Validate URL format
             if not file_url.startswith(('http://', 'https://')):
+                app.logger.error(f"Invalid URL format: {file_url}")
                 return jsonify({'error': 'Invalid URL. Must start with http:// or https://'}), 400
 
             # Extract filename from URL
             filename = file_url.split('/')[-1].split('?')[0]  # Remove query params
+            app.logger.info(f"Extracted filename from URL: {filename}")
             if not filename or not allowed_file(filename):
+                app.logger.error(f"Invalid filename extracted: {filename}")
                 return jsonify({'error': 'URL must point to a valid log file (.tar.bz2, .bz2, .tar.gz, or .gz)'}), 400
 
             # Download file from URL with timeout and size limit
@@ -255,12 +292,17 @@ def upload_file(current_user, db):
 
                 # Check content length if available
                 content_length = response.headers.get('content-length')
-                if content_length and int(content_length) > app.config['MAX_CONTENT_LENGTH']:
+                total_size = int(content_length) if content_length else None
+
+                if total_size and total_size > app.config['MAX_CONTENT_LENGTH']:
                     return jsonify({'error': 'File too large. Maximum size is 500MB'}), 400
 
                 # Create temporary file to store downloaded content
                 temp_fd, temp_filepath = tempfile.mkstemp(suffix='.tmp', dir=TEMP_FOLDER)
                 file_size = 0
+
+                # Store progress in Redis for tracking
+                progress_key = f"download_progress:{current_user.id}"
 
                 try:
                     with os.fdopen(temp_fd, 'wb') as temp_file:
@@ -268,10 +310,17 @@ def upload_file(current_user, db):
                             if chunk:
                                 temp_file.write(chunk)
                                 file_size += len(chunk)
+
+                                # Update progress in Redis
+                                progress_percent = (file_size / total_size * 100) if total_size else 0
+                                redis_client.setex(progress_key, 60, f"{file_size}:{total_size}:{progress_percent:.1f}")
+
                                 # Check size during download
                                 if file_size > app.config['MAX_CONTENT_LENGTH']:
                                     raise Exception('File size exceeds maximum allowed size')
 
+                    # Clear progress
+                    redis_client.delete(progress_key)
                     app.logger.info(f"Downloaded {file_size} bytes to {temp_filepath}")
 
                 except Exception as e:
@@ -281,12 +330,27 @@ def upload_file(current_user, db):
                     raise e
 
             except requests.exceptions.Timeout:
+                app.logger.error(f"Download timeout for URL: {file_url}")
+                redis_client.delete(progress_key)
                 return jsonify({'error': 'Download timeout. File took too long to download.'}), 408
             except requests.exceptions.HTTPError as e:
-                return jsonify({'error': f'Failed to download file: HTTP {e.response.status_code}'}), 400
+                app.logger.error(f"HTTP error downloading {file_url}: {e.response.status_code}")
+                redis_client.delete(progress_key)
+
+                # Provide helpful error messages based on status code
+                if e.response.status_code == 403:
+                    return jsonify({'error': 'Access denied. The URL requires authentication or the link has expired.'}), 403
+                elif e.response.status_code == 404:
+                    return jsonify({'error': 'File not found at the provided URL.'}), 404
+                else:
+                    return jsonify({'error': f'Failed to download file: HTTP {e.response.status_code}'}), 400
             except requests.exceptions.RequestException as e:
+                app.logger.error(f"Request error downloading {file_url}: {str(e)}")
+                redis_client.delete(progress_key)
                 return jsonify({'error': f'Failed to download file: {str(e)}'}), 400
             except Exception as e:
+                app.logger.error(f"Download error for {file_url}: {str(e)}")
+                redis_client.delete(progress_key)
                 return jsonify({'error': f'Download error: {str(e)}'}), 500
 
         else:

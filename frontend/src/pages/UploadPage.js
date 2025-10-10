@@ -35,6 +35,7 @@ function UploadPage() {
   const [error, setError] = useState(null);
   const [abortController, setAbortController] = useState(null);
   const cancelledRef = useRef(false);
+  const [downloadProgress, setDownloadProgress] = useState(null);
 
   // Get active job from context
   const activeJob = getActiveJob();
@@ -95,6 +96,31 @@ function UploadPage() {
         console.error('Failed to fetch parse modes:', err);
       });
   }, []);
+
+  // Poll for download progress when downloading from URL
+  useEffect(() => {
+    if (!loading || !file || file.type !== 'url') {
+      setDownloadProgress(null);
+      return;
+    }
+
+    const pollProgress = async () => {
+      try {
+        const response = await axios.get('/api/download-progress');
+        if (response.data.downloading) {
+          setDownloadProgress(response.data);
+        } else {
+          setDownloadProgress(null);
+        }
+      } catch (error) {
+        console.error('Error polling download progress:', error);
+      }
+    };
+
+    // Poll every 500ms
+    const interval = setInterval(pollProgress, 500);
+    return () => clearInterval(interval);
+  }, [loading, file]);
 
   const handleFileSelect = (selectedFile) => {
     setFile(selectedFile);
@@ -517,6 +543,41 @@ function UploadPage() {
             </div>
           )}
         </div>
+
+        {downloadProgress && (
+          <div className="card" style={{ marginBottom: '24px' }}>
+            <h3 style={{ marginTop: 0, color: '#1e40af' }}>Downloading File from URL...</h3>
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{
+                width: '100%',
+                height: '12px',
+                background: '#e5e7eb',
+                borderRadius: '6px',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  width: `${downloadProgress.percent}%`,
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
+                  transition: 'width 0.3s ease',
+                  borderRadius: '6px'
+                }}></div>
+              </div>
+            </div>
+            <div style={{ fontSize: '14px', color: '#6b7280' }}>
+              {downloadProgress.total ? (
+                <>
+                  {(downloadProgress.downloaded / (1024 * 1024)).toFixed(2)} MB / {(downloadProgress.total / (1024 * 1024)).toFixed(2)} MB
+                  ({downloadProgress.percent.toFixed(1)}%)
+                </>
+              ) : (
+                <>
+                  {(downloadProgress.downloaded / (1024 * 1024)).toFixed(2)} MB downloaded...
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {loading && parserQueue.length > 0 && currentParser && (
           <ParserProgress
