@@ -15,8 +15,7 @@ import functools
 try:
     import regex as re
 except ImportError:
-    import re
-    print("Could not find the module regex. Falling back to built-in re module.")
+    print("Could not find the module regex.  If you are using pip, install it with pip install regex")
 
 VERSION = "4.2"
 
@@ -65,10 +64,6 @@ class DateRange(object):
         if start is not None:
             try:
                 self.start = parse(start)
-                # Make timezone-aware if naive
-                if self.start.tzinfo is None:
-                    from pytz import UTC
-                    self.start = UTC.localize(self.start)
             except ValueError:
                 print("Unable to parse your begin string as a datetime")
                 exit(20)
@@ -76,10 +71,6 @@ class DateRange(object):
         if end is not None:
             try:
                 self.end = parse(end)
-                # Make timezone-aware if naive
-                if self.end.tzinfo is None:
-                    from pytz import UTC
-                    self.end = UTC.localize(self.end)
             except ValueError:
                 print("Unable to parse your end string as a datetime")
                 exit(20)
@@ -90,26 +81,11 @@ class DateRange(object):
         if date is None:
             to_return = False
         else:
-            # Ensure date is timezone-aware for comparison
-            if date.tzinfo is None:
-                from pytz import UTC
-                date = UTC.localize(date)
-
-            # Make sure start and end are also timezone-aware for comparison
-            start_cmp = self.start
-            end_cmp = self.end
-
-            if self.includes_start and start_cmp.tzinfo is None:
-                from pytz import UTC
-                start_cmp = UTC.localize(start_cmp)
-            if self.includes_end and end_cmp.tzinfo is None:
-                from pytz import UTC
-                end_cmp = UTC.localize(end_cmp)
 
             # print("Checking {0!s} against {1!s} and {2!s} when includes_start is {3!s} and includes_end is {4!s}".format(date,self.start,self.end,self.includes_start,self.includes_end))
-            if self.includes_start and start_cmp > date:
+            if self.includes_start and self.start > date:
                 to_return = False
-            if self.includes_end and end_cmp < date:
+            if self.includes_end and self.end < date:
                 to_return = False
 
         return to_return
@@ -2778,7 +2754,19 @@ class Tar(ShellCommand):
         super(Tar, self).__init__('tar')
 
     def expand(self, source_path, target_path):
-        return self.ex("{0!s} xf {1!s} -C{2!s} 2>/dev/null".format(self._command, source_path, target_path))
+        # Use parallel decompression for better performance on multi-core systems
+        # pbzip2 for .bz2, pigz for .gz - both use all available CPU cores
+        if source_path.endswith('.tar.bz2') or source_path.endswith('.tbz2') or source_path.endswith('.bz2'):
+            decompress_prog = 'pbzip2'
+        elif source_path.endswith('.tar.gz') or source_path.endswith('.tgz') or source_path.endswith('.gz'):
+            decompress_prog = 'pigz'
+        else:
+            # No compression or unknown format - use default
+            return self.ex("{0!s} xf {1!s} -C{2!s} 2>/dev/null".format(self._command, source_path, target_path))
+
+        # Use --use-compress-program for parallel decompression
+        return self.ex("{0!s} --use-compress-program={1!s} -xf {2!s} -C{3!s} 2>/dev/null".format(
+            self._command, decompress_prog, source_path, target_path))
 
 class GZcat(ShellCommand):
     def __init__(self):
@@ -2808,11 +2796,9 @@ class WorkDir(ShellOut):
     path = ''
     base = ''
 
-    def __init__(self, base=None, name='unnamed'):
+    def __init__(self, base="~/.lula", name='unnamed'):
         if name is None or name == '':
             raise ValueError('the name in WorkDir was blank.')
-        if base is None:
-            base = os.getenv('LULA_TEMP_DIR') or "~/.lula"
         self.base = base
         self.path = os.path.join(os.path.expanduser(base), name)
 

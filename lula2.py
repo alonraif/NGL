@@ -2754,7 +2754,19 @@ class Tar(ShellCommand):
         super(Tar, self).__init__('tar')
 
     def expand(self, source_path, target_path):
-        return self.ex("{0!s} xf {1!s} -C{2!s} 2>/dev/null".format(self._command, source_path, target_path))
+        # Use parallel decompression for better performance on multi-core systems
+        # pbzip2 for .bz2, pigz for .gz - both use all available CPU cores
+        if source_path.endswith('.tar.bz2') or source_path.endswith('.tbz2') or source_path.endswith('.bz2'):
+            decompress_prog = 'pbzip2'
+        elif source_path.endswith('.tar.gz') or source_path.endswith('.tgz') or source_path.endswith('.gz'):
+            decompress_prog = 'pigz'
+        else:
+            # No compression or unknown format - use default
+            return self.ex("{0!s} xf {1!s} -C{2!s} 2>/dev/null".format(self._command, source_path, target_path))
+
+        # Use --use-compress-program for parallel decompression
+        return self.ex("{0!s} --use-compress-program={1!s} -xf {2!s} -C{3!s} 2>/dev/null".format(
+            self._command, decompress_prog, source_path, target_path))
 
 class GZcat(ShellCommand):
     def __init__(self):
