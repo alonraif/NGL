@@ -68,12 +68,12 @@ class LulaWrapperParser(BaseParser):
 
         # Wait for completion
         try:
-            stdout, stderr = process.communicate(timeout=600)
+            stdout, stderr = process.communicate(timeout=1800)
             returncode = process.returncode
         except subprocess.TimeoutExpired:
             # Kill the entire process group
             os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            raise Exception("lula2.py processing timed out after 10 minutes")
+            raise Exception("lula2.py processing timed out after 30 minutes")
 
         if returncode != 0:
             # Clean up Redis entry on error

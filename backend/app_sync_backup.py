@@ -192,7 +192,7 @@ def upload_file():
             cmd,
             capture_output=True,
             text=True,
-            timeout=600  # 10 minutes
+            timeout=1800  # 30 minutes
         )
 
         processing_time = time.time() - start_time
@@ -228,7 +228,7 @@ def upload_file():
 
     except subprocess.TimeoutExpired:
         print(f"Processing timeout for {filename}")
-        return jsonify({'error': 'Processing timeout (>10 minutes)'}), 408
+        return jsonify({'error': 'Processing timeout (>30 minutes)'}), 408
     except Exception as e:
         print(f"Error processing {filename}: {str(e)}")
         return jsonify({'error': str(e)}), 500

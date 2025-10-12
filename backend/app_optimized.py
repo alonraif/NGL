@@ -192,7 +192,7 @@ def process_log_async(job_id, filepath, parse_mode, timezone, begin_date, end_da
             cmd,
             capture_output=True,
             text=True,
-            timeout=600  # Increased to 10 minutes
+            timeout=1800  # Increased to 30 minutes
         )
 
         processing_time = time.time() - start_time
@@ -233,7 +233,7 @@ def process_log_async(job_id, filepath, parse_mode, timezone, begin_date, end_da
         update_job_status(job_id, 'completed', 100, 'Analysis complete!', result=result_data)
 
     except subprocess.TimeoutExpired:
-        update_job_status(job_id, 'failed', error='Processing timeout (>10 minutes)')
+        update_job_status(job_id, 'failed', error='Processing timeout (>30 minutes)')
     except Exception as e:
         update_job_status(job_id, 'failed', error=str(e))
 
