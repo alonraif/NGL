@@ -1,0 +1,442 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    NGL MYSQL MIGRATION CHECKLIST                           ║
+║                       PostgreSQL → MySQL 8.0                               ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+Migration Date: ________________    Start Time: ________________
+Performed By: __________________    Environment: □ Staging  □ Production
+
+
+═══════════════════════════════════════════════════════════════════════════
+ PHASE 1: PRE-MIGRATION (30 minutes)
+═══════════════════════════════════════════════════════════════════════════
+
+□ Read MYSQL_MIGRATION_GUIDE.md completely
+□ Print MIGRATION_QUICK_REFERENCE.md
+□ Notify users of maintenance window
+□ Confirm emergency contacts available
+□ Schedule rollback window if needed
+
+Backups:
+□ Backup PostgreSQL database
+   Command: docker-compose exec postgres pg_dump -U ngl_user ngl_db > backup_$(date +%Y%m%d_%H%M%S).sql
+   File: ____________________    Size: ________
+
+□ Backup uploads volume
+   Command: docker run --rm -v ngl_uploads:/data -v $(pwd):/backup alpine tar czf /backup/uploads_backup.tar.gz /data
+   File: ____________________    Size: ________
+
+□ Backup configuration files
+   □ docker-compose.yml
+   □ backend/requirements.txt
+   □ backend/config.py
+   □ .env file (if exists)
+
+System Checks:
+□ Check disk space (need 2x current DB size)
+   Available: ________ GB    Required: ________ GB
+
+□ Check current DB size
+   Size: ________ GB
+
+□ Verify all services healthy
+   □ postgres: ______    □ backend: ______
+   □ redis: ______       □ frontend: ______
+   □ celery_worker: ______    □ celery_beat: ______
+
+
+═══════════════════════════════════════════════════════════════════════════
+ PHASE 2: EXPORT DATA (30 minutes)
+═══════════════════════════════════════════════════════════════════════════
+
+□ Run export command
+   Command: docker-compose exec backend python migrate_pg_to_mysql.py export
+
+□ Verify export completed
+   Total tables exported: ________    Expected: 14
+   Total rows exported: ________
+
+□ Check manifest file exists
+   File: /app/migration_data/migration_manifest.json  □ Exists
+
+□ Review checksums in manifest
+   users: ________________    parsers: ________________
+   log_files: ________________    analyses: ________________
+
+Export completed at: ________________
+
+
+═══════════════════════════════════════════════════════════════════════════
+ PHASE 3: STOP SERVICES (5 minutes)
+═══════════════════════════════════════════════════════════════════════════
+
+□ Announce maintenance window to users
+   Time announced: ________________
+
+□ Stop all Docker services
+   Command: docker-compose down
+   All stopped: □ Yes  □ No
+
+□ Verify no services running
+   Command: docker-compose ps
+   Result: ________________
+
+
+═══════════════════════════════════════════════════════════════════════════
+ PHASE 4: CONFIGURATION SWITCH (10 minutes)
+═══════════════════════════════════════════════════════════════════════════
+
+□ Copy MySQL docker-compose
+   Command: cp docker-compose.mysql.yml docker-compose.yml
+
+□ Update requirements.txt
+   Command: cp backend/requirements.mysql.txt backend/requirements.txt
+
+□ Update config.py
+   Command: cp backend/config.mysql.py backend/config.py
+
+□ Review environment variables (optional)
+   □ MYSQL_DATABASE=ngl_db
+   □ MYSQL_USER=ngl_user
+   □ MYSQL_PASSWORD=__________ (set secure password!)
+   □ MYSQL_ROOT_PASSWORD=__________ (set secure password!)
+
+
+═══════════════════════════════════════════════════════════════════════════
+ PHASE 5: MYSQL SETUP (15 minutes)
+═══════════════════════════════════════════════════════════════════════════
+
+□ Start MySQL service only
+   Command: docker-compose up -d mysql
+
+□ Wait for MySQL to be healthy (30-60 seconds)
+   Status: ________________
+
+□ Check MySQL logs for errors
+   Command: docker-compose logs mysql
+   Errors: □ None  □ See notes: ________________
+
+□ Verify MySQL responding
+   Command: docker-compose exec mysql mysqladmin ping -h localhost
+   Result: ________________
+
+□ Start backend service
+   Command: docker-compose up -d backend
+
+□ Wait for backend to be ready
+   Status: ________________
+
+
+═══════════════════════════════════════════════════════════════════════════
+ PHASE 6: SCHEMA CREATION (10 minutes)
+═══════════════════════════════════════════════════════════════════════════
+
+□ Run Alembic migrations
+   Command: docker-compose exec backend alembic upgrade head
+
+□ Check for migration errors
+   Errors: □ None  □ See notes: ________________
+
+□ Verify tables created
+   Command: docker-compose exec mysql mysql -u ngl_user -pngl_password ngl_db -e "SHOW TABLES;"
+   Table count: ________    Expected: 14+
+
+□ List tables found:
+   □ users                 □ parsers
+   □ parser_permissions    □ log_files
+   □ analyses              □ analysis_results
+   □ retention_policies    □ deletion_log
+   □ audit_log             □ sessions
+   □ notifications         □ alert_rules
+   □ s3_configurations     □ ssl_configurations
+
+
+═══════════════════════════════════════════════════════════════════════════
+ PHASE 7: DATA IMPORT (30-60 minutes)
+═══════════════════════════════════════════════════════════════════════════
+
+□ Set MySQL URL environment variable
+   Command: export MYSQL_DATABASE_URL='mysql+pymysql://ngl_user:ngl_password@localhost:3306/ngl_db?charset=utf8mb4'
+
+□ Start import process
+   Command: docker-compose exec backend python migrate_pg_to_mysql.py import
+   Start time: ________________
+
+□ Monitor import progress
+   users: ________ rows          parsers: ________ rows
+   log_files: ________ rows      analyses: ________ rows
+   analysis_results: ________ rows
+
+□ Import completed
+   End time: ________________
+   Duration: ________
+   Total rows imported: ________
+   Errors: □ None  □ See notes: ________________
+
+
+═══════════════════════════════════════════════════════════════════════════
+ PHASE 8: VERIFICATION (15 minutes)
+═══════════════════════════════════════════════════════════════════════════
+
+□ Run verification script
+   Command: docker-compose exec backend python migrate_pg_to_mysql.py verify
+
+□ Verify all table counts match
+   □ users          Expected: ______    Actual: ______
+   □ parsers        Expected: ______    Actual: ______
+   □ log_files      Expected: ______    Actual: ______
+   □ analyses       Expected: ______    Actual: ______
+   □ Other tables   Expected: ______    Actual: ______
+
+□ All tables verified: □ Yes  □ No
+
+□ If NO, note discrepancies:
+   _________________________________________________________________
+   _________________________________________________________________
+
+
+═══════════════════════════════════════════════════════════════════════════
+ PHASE 9: START SERVICES (10 minutes)
+═══════════════════════════════════════════════════════════════════════════
+
+□ Start all services
+   Command: docker-compose up -d
+
+□ Wait for all services to be healthy (2-3 minutes)
+
+□ Check service status:
+   □ mysql: ________          □ redis: ________
+   □ backend: ________        □ frontend: ________
+   □ celery_worker: ________  □ celery_beat: ________
+
+□ Check logs for errors
+   Command: docker-compose logs backend | grep -i error
+   Errors: □ None  □ See notes: ________________
+
+
+═══════════════════════════════════════════════════════════════════════════
+ PHASE 10: AUTOMATED TESTING (15 minutes)
+═══════════════════════════════════════════════════════════════════════════
+
+□ Run test script
+   Command: ./test_migration.sh
+
+Test Results:
+□ Test 1: MySQL service health               □ Pass  □ Fail
+□ Test 2: Backend service health             □ Pass  □ Fail
+□ Test 3: Database connection                □ Pass  □ Fail
+□ Test 4: Database tables                    □ Pass  □ Fail
+□ Test 5: Users table                        □ Pass  □ Fail
+□ Test 6: Admin user                         □ Pass  □ Fail
+□ Test 7: Parsers table                      □ Pass  □ Fail
+□ Test 8: API health endpoint                □ Pass  □ Fail
+□ Test 9: Login endpoint                     □ Pass  □ Fail
+□ Test 10: Authenticated request             □ Pass  □ Fail
+□ Test 11: Parse modes endpoint              □ Pass  □ Fail
+□ Test 12: Log files count                   □ Pass  □ Fail
+□ Test 13: Analyses count                    □ Pass  □ Fail
+□ Test 14: Audit log                         □ Pass  □ Fail
+□ Test 15: Celery worker                     □ Pass  □ Fail
+□ Test 16: Redis connection                  □ Pass  □ Fail
+
+Total: ________ passed, ________ failed
+
+
+═══════════════════════════════════════════════════════════════════════════
+ PHASE 11: MANUAL TESTING (30 minutes)
+═══════════════════════════════════════════════════════════════════════════
+
+Frontend Tests:
+□ Open http://localhost:3000
+   Loads: □ Yes  □ No
+
+□ Login with admin credentials
+   Username: admin    Password: Admin123!
+   Success: □ Yes  □ No
+   Token received: □ Yes  □ No
+
+□ Upload a test log file
+   File: ________________    Size: ________
+   Success: □ Yes  □ No
+
+□ Run analysis on uploaded file
+   Parser: ________________
+   Success: □ Yes  □ No
+   Results displayed: □ Yes  □ No
+
+□ View Analysis History
+   Can see past analyses: □ Yes  □ No
+   Count matches database: □ Yes  □ No
+
+□ Open Analysis History item
+   Results load correctly: □ Yes  □ No
+
+□ Test Admin Dashboard
+   Statistics tab: □ Working  □ Issues: ________________
+   Users tab: □ Working  □ Issues: ________________
+   Parsers tab: □ Working  □ Issues: ________________
+
+Backend Tests:
+□ API health check
+   Command: curl http://localhost:5000/api/health
+   Response: ________________
+   Status: □ Healthy  □ Issues
+
+□ Login API
+   Token generated: □ Yes  □ No
+
+□ Authenticated endpoints working
+   /api/auth/me: □ Working
+   /api/parse-modes: □ Working
+   /api/analyses: □ Working
+
+
+═══════════════════════════════════════════════════════════════════════════
+ PHASE 12: POST-MIGRATION (Ongoing)
+═══════════════════════════════════════════════════════════════════════════
+
+Immediate (within 1 hour):
+□ Monitor logs continuously
+   Command: docker-compose logs -f backend
+   Issues: □ None  □ See notes: ________________
+
+□ Test with real users (if staging)
+   Users tested: ________
+   Feedback: ________________
+
+□ Check performance
+   Login time: ________ ms    Upload time: ________ s
+   Parse time: ________ s     Query time: ________ ms
+
+□ Verify background tasks
+   Celery worker active: □ Yes
+   Redis connected: □ Yes
+
+Next 24 Hours:
+□ Monitor error logs
+   Errors found: ________ (should be 0)
+
+□ Check MySQL slow query log
+   Slow queries: ________ (investigate if > 10)
+
+□ Verify file retention tasks work
+   Next run: ________________
+
+□ Check database size growth
+   Current size: ________ GB
+
+□ User feedback
+   Issues reported: ________
+   Resolved: ________
+
+Next 7 Days:
+□ Daily health checks
+   Day 1: □ ____    Day 2: □ ____    Day 3: □ ____
+   Day 4: □ ____    Day 5: □ ____    Day 6: □ ____
+   Day 7: □ ____
+
+□ Performance monitoring
+   Any degradation: □ No  □ Yes, details: ________________
+
+□ Update documentation
+   □ README.md
+   □ GETTING_STARTED.md
+   □ Internal wiki/docs
+   □ Team notified
+
+After 30 Days:
+□ Confirm migration fully successful
+   All issues resolved: □ Yes  □ No
+
+□ Archive PostgreSQL backups
+   Backed up to: ________________
+
+□ Clean up migration files (optional)
+   □ Remove /app/migration_data/*
+   □ Archive migration logs
+
+□ Remove PostgreSQL data (CAREFUL!)
+   □ docker volume rm ngl_postgres_data
+
+
+═══════════════════════════════════════════════════════════════════════════
+ ROLLBACK PROCEDURE (If Needed)
+═══════════════════════════════════════════════════════════════════════════
+
+If migration fails, follow these steps:
+
+□ Stop all services
+   Command: docker-compose down
+
+□ Restore original configuration
+   Commands:
+   git checkout docker-compose.yml
+   git checkout backend/requirements.txt
+   git checkout backend/config.py
+
+□ Start PostgreSQL
+   Command: docker-compose up -d postgres
+
+□ Restore database backup
+   Command: docker-compose exec -T postgres psql -U ngl_user -d ngl_db < backup_YYYYMMDD_HHMMSS.sql
+   Success: □ Yes  □ No
+
+□ Start all services
+   Command: docker-compose up -d
+
+□ Verify rollback successful
+   Can log in: □ Yes  □ No
+   Data intact: □ Yes  □ No
+
+□ Notify users
+   Time notified: ________________
+   Message: ________________
+
+Rollback performed by: ________________
+Rollback time: ________________
+Reason: _________________________________________________________________
+________________________________________________________________________
+
+
+═══════════════════════════════════════════════════════════════════════════
+ NOTES & ISSUES
+═══════════════════════════════════════════════════════════════════════════
+
+Issue #1: _______________________________________________________________
+________________________________________________________________________
+Resolution: _____________________________________________________________
+
+Issue #2: _______________________________________________________________
+________________________________________________________________________
+Resolution: _____________________________________________________________
+
+Issue #3: _______________________________________________________________
+________________________________________________________________________
+Resolution: _____________________________________________________________
+
+
+═══════════════════════════════════════════════════════════════════════════
+ FINAL SIGN-OFF
+═══════════════════════════════════════════════════════════════════════════
+
+□ All tests passed
+□ No critical errors in logs
+□ Users can access system
+□ All features working
+□ Team notified of completion
+□ Documentation updated
+
+Migration Status: □ SUCCESSFUL  □ ROLLED BACK  □ IN PROGRESS
+
+Completed by: ____________________    Date: ____________________
+
+Sign: ____________________            Time: ____________________
+
+End Time: ____________________    Total Duration: ____________________
+
+
+═══════════════════════════════════════════════════════════════════════════
+╔════════════════════════════════════════════════════════════════════════════╗
+║  Keep this checklist for your records and future reference migrations     ║
+║  Store PostgreSQL backups for at least 30 days after successful migration ║
+╚════════════════════════════════════════════════════════════════════════════╝

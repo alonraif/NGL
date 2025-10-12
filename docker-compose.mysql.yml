@@ -1,0 +1,186 @@
+#version: '3.8'
+#
+# MySQL version of docker-compose.yml
+# To use: docker-compose -f docker-compose.mysql.yml up -d
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-ngl_db}
+      - MYSQL_USER=${MYSQL_USER:-ngl_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-ngl_password}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root_password}
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max_connections=500
+      --innodb_buffer_pool_size=1G
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - lula-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "ngl_user", "-pngl_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - lula-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+      - uploads:/app/uploads
+      - temp:/app/temp
+      - migration_data:/app/migration_data  # For migration scripts
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+      - nginx_runtime:/etc/nginx/runtime
+      - nginx_ssl:/etc/nginx/ssl
+      - ./test_config.json:/app/test_config.json:ro
+      - ./test_logs:/app/test_logs:ro
+    environment:
+      - FLASK_ENV=${FLASK_ENV:-development}
+      - FLASK_DEBUG=${FLASK_DEBUG:-1}
+      - PYTHONUNBUFFERED=1
+      # MySQL connection string
+      - DATABASE_URL=mysql+pymysql://${MYSQL_USER:-ngl_user}:${MYSQL_PASSWORD:-ngl_password}@mysql:3306/${MYSQL_DATABASE:-ngl_db}?charset=utf8mb4
+      # For migration script
+      - MYSQL_DATABASE_URL=mysql+pymysql://${MYSQL_USER:-ngl_user}:${MYSQL_PASSWORD:-ngl_password}@mysql:3306/${MYSQL_DATABASE:-ngl_db}?charset=utf8mb4
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production}
+      - UPLOAD_RETENTION_DAYS=${UPLOAD_RETENTION_DAYS:-30}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - CERTBOT_WEBROOT=${CERTBOT_WEBROOT:-/var/www/certbot}
+      - LE_LIVE_BASE=${LE_LIVE_BASE:-/etc/letsencrypt/live}
+      - NGINX_RUNTIME_DIR=${NGINX_RUNTIME_DIR:-/etc/nginx/runtime}
+      - UPLOAD_CERT_DIR=${UPLOAD_CERT_DIR:-/etc/nginx/ssl/uploaded}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lula-network
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A celery_app.celery worker --loglevel=info
+    volumes:
+      - ./backend:/app
+      - uploads:/app/uploads
+      - temp:/app/temp
+      - migration_data:/app/migration_data
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+      - nginx_runtime:/etc/nginx/runtime
+      - nginx_ssl:/etc/nginx/ssl
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=mysql+pymysql://${MYSQL_USER:-ngl_user}:${MYSQL_PASSWORD:-ngl_password}@mysql:3306/${MYSQL_DATABASE:-ngl_db}?charset=utf8mb4
+      - REDIS_URL=redis://redis:6379/0
+      - CERTBOT_WEBROOT=${CERTBOT_WEBROOT:-/var/www/certbot}
+      - LE_LIVE_BASE=${LE_LIVE_BASE:-/etc/letsencrypt/live}
+      - NGINX_RUNTIME_DIR=${NGINX_RUNTIME_DIR:-/etc/nginx/runtime}
+      - UPLOAD_CERT_DIR=${UPLOAD_CERT_DIR:-/etc/nginx/ssl/uploaded}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lula-network
+
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A celery_app.celery beat --loglevel=info
+    volumes:
+      - ./backend:/app
+      - migration_data:/app/migration_data
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+      - nginx_runtime:/etc/nginx/runtime
+      - nginx_ssl:/etc/nginx/ssl
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=mysql+pymysql://${MYSQL_USER:-ngl_user}:${MYSQL_PASSWORD:-ngl_password}@mysql:3306/${MYSQL_DATABASE:-ngl_db}?charset=utf8mb4
+      - REDIS_URL=redis://redis:6379/0
+      - CERTBOT_WEBROOT=${CERTBOT_WEBROOT:-/var/www/certbot}
+      - LE_LIVE_BASE=${LE_LIVE_BASE:-/etc/letsencrypt/live}
+      - NGINX_RUNTIME_DIR=${NGINX_RUNTIME_DIR:-/etc/nginx/runtime}
+      - UPLOAD_CERT_DIR=${UPLOAD_CERT_DIR:-/etc/nginx/ssl/uploaded}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lula-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+    networks:
+      - lula-network
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt:ro
+      - nginx_runtime:/etc/nginx/runtime
+
+  certbot:
+    image: certbot/certbot:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["trap exit TERM; while :; do sleep 3600; done"]
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+      - nginx_ssl:/etc/nginx/ssl
+    networks:
+      - lula-network
+
+volumes:
+  uploads:
+  temp:
+  mysql_data:  # MySQL data instead of postgres_data
+  redis_data:
+  migration_data:  # For migration scripts
+  certbot_www:
+  certbot_certs:
+  nginx_runtime:
+  nginx_ssl:
+
+networks:
+  lula-network:
+    driver: bridge
