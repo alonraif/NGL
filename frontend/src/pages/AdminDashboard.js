@@ -26,6 +26,35 @@ const AdminDashboard = () => {
     storage_quota_mb: 500
   });
 
+  const theme = {
+    bgCard: 'var(--bg-card)',
+    bgSecondary: 'var(--bg-secondary)',
+    bgTertiary: 'var(--bg-tertiary)',
+    bgHover: 'var(--bg-hover)',
+    border: 'var(--border-color)',
+    borderStrong: 'var(--border-strong)',
+    textPrimary: 'var(--text-primary)',
+    textSecondary: 'var(--text-secondary)',
+    textTertiary: 'var(--text-tertiary)',
+    brandPrimary: 'var(--brand-primary)',
+    brandPrimaryHover: 'var(--brand-primary-hover)',
+    brandGradient: 'linear-gradient(90deg, var(--brand-primary), var(--brand-primary-hover))',
+    neutralGradient: 'linear-gradient(90deg, var(--text-secondary), var(--text-primary))',
+    success: 'var(--success)',
+    successBg: 'var(--success-bg)',
+    successLight: 'var(--success-light)',
+    warning: 'var(--warning)',
+    warningBg: 'var(--warning-bg)',
+    error: 'var(--error)',
+    errorBg: 'var(--error-bg)',
+    info: 'var(--info)',
+    infoBg: 'var(--info-bg)',
+    infoLight: 'var(--info-light)',
+    shadow: 'var(--shadow-color)',
+    codeBg: 'var(--code-bg)',
+    codeText: 'var(--code-text)'
+  };
+
   // S3 Storage state
   const [s3Config, setS3Config] = useState(null);
   const [s3Stats, setS3Stats] = useState(null);
@@ -611,7 +640,7 @@ const AdminDashboard = () => {
               {s3Stats && s3Stats.storage && (
                 <div style={{ marginTop: '30px' }}>
                   <h3 style={{ marginBottom: '15px' }}>Storage Distribution</h3>
-                  <div className="card" style={{ background: '#f9fafb' }}>
+                  <div className="card" style={{ background: theme.bgTertiary }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -621,8 +650,8 @@ const AdminDashboard = () => {
                             borderRadius: '4px',
                             fontSize: '12px',
                             fontWeight: '600',
-                            background: s3Stats.storage_mode === 's3' ? '#dbeafe' : '#e5e7eb',
-                            color: s3Stats.storage_mode === 's3' ? '#1e40af' : '#6b7280'
+                            background: s3Stats.storage_mode === 's3' ? theme.infoBg : theme.bgHover,
+                            color: s3Stats.storage_mode === 's3' ? theme.info : theme.textSecondary
                           }}>
                             {s3Stats.storage_mode === 's3' ? 'Active' : 'Inactive'}
                           </span>
@@ -632,15 +661,15 @@ const AdminDashboard = () => {
                           <div className="stat-label">Files in S3</div>
                           <div className="stat-sub">{Number(s3Stats.storage.s3.gb || 0).toFixed(2)} GB</div>
                         </div>
-                        <div style={{ height: '20px', background: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div style={{ height: '20px', background: theme.bgHover, borderRadius: '4px', overflow: 'hidden' }}>
                           <div style={{
                             width: `${Number(s3Stats.storage.s3.percentage || 0)}%`,
                             height: '100%',
-                            background: 'linear-gradient(90deg, #3b82f6, #2563eb)',
+                            background: theme.brandGradient,
                             transition: 'width 0.3s ease'
                           }}></div>
                         </div>
-                        <div style={{ marginTop: '8px', fontSize: '13px', color: '#6b7280' }}>
+                        <div style={{ marginTop: '8px', fontSize: '13px', color: theme.textSecondary }}>
                           {Number(s3Stats.storage.s3.percentage || 0).toFixed(1)}% of total storage
                         </div>
                       </div>
@@ -651,15 +680,15 @@ const AdminDashboard = () => {
                           <div className="stat-label">Files in Local</div>
                           <div className="stat-sub">{Number(s3Stats.storage.local.gb || 0).toFixed(2)} GB</div>
                         </div>
-                        <div style={{ height: '20px', background: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div style={{ height: '20px', background: theme.bgHover, borderRadius: '4px', overflow: 'hidden' }}>
                           <div style={{
                             width: `${Number(s3Stats.storage.local.percentage || 0)}%`,
                             height: '100%',
-                            background: 'linear-gradient(90deg, #6b7280, #4b5563)',
+                            background: theme.neutralGradient,
                             transition: 'width 0.3s ease'
                           }}></div>
                         </div>
-                        <div style={{ marginTop: '8px', fontSize: '13px', color: '#6b7280' }}>
+                        <div style={{ marginTop: '8px', fontSize: '13px', color: theme.textSecondary }}>
                           {Number(s3Stats.storage.local.percentage || 0).toFixed(1)}% of total storage
                         </div>
                       </div>
@@ -667,22 +696,22 @@ const AdminDashboard = () => {
                     <div style={{
                       marginTop: '20px',
                       padding: '15px',
-                      background: '#f3f4f6',
+                      background: theme.bgHover,
                       borderRadius: '6px',
-                      borderLeft: '4px solid #3b82f6'
+                      borderLeft: `4px solid ${theme.brandPrimary}`
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                           <strong style={{ fontSize: '14px' }}>Total Storage Across All Locations</strong>
-                          <div style={{ marginTop: '4px', fontSize: '13px', color: '#6b7280' }}>
+                          <div style={{ marginTop: '4px', fontSize: '13px', color: theme.textSecondary }}>
                             {s3Stats.files.total || 0} files
                           </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: '24px', fontWeight: '700', color: '#1f2937' }}>
+                          <div style={{ fontSize: '24px', fontWeight: '700', color: theme.textPrimary }}>
                             {Number(s3Stats.storage.total.gb || 0).toFixed(2)} GB
                           </div>
-                          <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                          <div style={{ fontSize: '12px', color: theme.textSecondary }}>
                             {Number(s3Stats.storage.total.mb || 0).toFixed(0)} MB
                           </div>
                         </div>
@@ -707,7 +736,7 @@ const AdminDashboard = () => {
               </div>
 
               {showCreateUser && (
-                <div className="card" style={{ marginBottom: '20px', background: '#f9fafb' }}>
+                <div className="card" style={{ marginBottom: '20px', background: theme.bgTertiary }}>
                   <h3>Create New User</h3>
                   <form onSubmit={handleCreateUser}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
@@ -777,7 +806,7 @@ const AdminDashboard = () => {
               )}
 
               {showResetPassword && selectedUser && (
-                <div className="card" style={{ marginBottom: '20px', background: '#fef3c7' }}>
+                <div className="card" style={{ marginBottom: '20px', background: theme.warningBg, border: `1px solid ${theme.warning}` }}>
                   <h3>Reset Password for {selectedUser.username}</h3>
                   <form onSubmit={handleResetPassword}>
                     <div className="form-group">
@@ -863,7 +892,7 @@ const AdminDashboard = () => {
                             <button
                               onClick={() => handleDeleteUser(u.id, u.username)}
                               className="btn btn-small"
-                              style={{ background: '#dc2626', color: 'white' }}
+                              style={{ background: theme.error, color: 'white' }}
                             >
                               Delete
                             </button>
@@ -996,8 +1025,8 @@ const AdminDashboard = () => {
                           borderRadius: '4px',
                           fontSize: '11px',
                           fontWeight: '500',
-                          background: a.storage_type === 's3' ? '#dbeafe' : '#e5e7eb',
-                          color: a.storage_type === 's3' ? '#1e40af' : '#374151'
+                          background: a.storage_type === 's3' ? theme.infoBg : theme.bgHover,
+                          color: a.storage_type === 's3' ? theme.info : theme.textPrimary
                         }}>
                           {a.storage_type === 's3' ? '☁️ S3' : '🗄️ Local'}
                         </span>
@@ -1042,7 +1071,7 @@ const AdminDashboard = () => {
               </table>
 
               {analyses.length === 0 && (
-                <p style={{ textAlign: 'center', marginTop: '20px', color: '#666' }}>
+                <p style={{ textAlign: 'center', marginTop: '20px', color: theme.textSecondary }}>
                   No analyses found{selectedUserId ? ' for this user' : ''}
                 </p>
               )}
@@ -1054,7 +1083,7 @@ const AdminDashboard = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div>
                   <h2 style={{ margin: 0 }}>Amazon S3 Storage</h2>
-                  <p style={{ margin: '4px 0 0 0', color: '#6b7280', fontSize: '14px' }}>
+                  <p style={{ margin: '4px 0 0 0', color: theme.textSecondary, fontSize: '14px' }}>
                     Configure cloud storage for uploaded log files
                   </p>
                 </div>
@@ -1069,40 +1098,40 @@ const AdminDashboard = () => {
               {s3Config && (
                 <div className="card" style={{
                   marginBottom: '20px',
-                  background: s3Config.is_enabled ? '#ecfdf5' : '#f9fafb',
-                  border: s3Config.is_enabled ? '1px solid #10b981' : '1px solid #e5e7eb'
+                  background: s3Config.is_enabled ? theme.successLight : theme.bgTertiary,
+                  border: s3Config.is_enabled ? `1px solid ${theme.success}` : `1px solid ${theme.border}`
                 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
                     <div>
-                      <div style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: '600', color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
                         Storage Mode
                       </div>
-                      <div style={{ fontSize: '15px', fontWeight: '600', color: '#111827' }}>
+                      <div style={{ fontSize: '15px', fontWeight: '600', color: theme.textPrimary }}>
                         {s3Stats?.storage_mode === 's3' ? 'Amazon S3' : 'Local Storage'}
                       </div>
-                      <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                      <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>
                         {s3Config.is_enabled ? 'Active and receiving uploads' : 'Inactive'}
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: '600', color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
                         Connection Status
                       </div>
-                      <div style={{ fontSize: '15px', fontWeight: '600', color: s3Config.last_test_success ? '#059669' : '#dc2626' }}>
+                      <div style={{ fontSize: '15px', fontWeight: '600', color: s3Config.last_test_success ? theme.success : theme.error }}>
                         {s3Config.last_test_success ? 'Connected' : 'Disconnected'}
                       </div>
-                      <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                      <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>
                         {s3Config.last_test_at ? `Tested ${new Date(s3Config.last_test_at).toLocaleDateString()}` : 'Never tested'}
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: '600', color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
                         Bucket
                       </div>
-                      <div style={{ fontSize: '15px', fontWeight: '600', color: '#111827' }}>
+                      <div style={{ fontSize: '15px', fontWeight: '600', color: theme.textPrimary }}>
                         {s3Config.bucket_name}
                       </div>
-                      <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                      <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>
                         {s3Config.region}
                       </div>
                     </div>
@@ -1113,30 +1142,30 @@ const AdminDashboard = () => {
               {/* Storage Distribution */}
               {s3Stats && s3Stats.storage && (
                 <div className="card" style={{ marginBottom: '20px' }}>
-                  <h3 style={{ marginBottom: '20px', fontSize: '16px', fontWeight: '600' }}>Storage Distribution</h3>
+                  <h3 style={{ marginBottom: '20px', fontSize: '16px', fontWeight: '600', color: theme.textPrimary }}>Storage Distribution</h3>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' }}>
                         <div>
-                          <div style={{ fontSize: '13px', fontWeight: '600', color: '#6b7280', marginBottom: '4px' }}>Amazon S3</div>
-                          <div style={{ fontSize: '24px', fontWeight: '700', color: '#111827' }}>
-                            {Number(s3Stats.storage.s3.gb || 0).toFixed(2)} <span style={{ fontSize: '14px', fontWeight: '500', color: '#6b7280' }}>GB</span>
+                          <div style={{ fontSize: '13px', fontWeight: '600', color: theme.textSecondary, marginBottom: '4px' }}>Amazon S3</div>
+                          <div style={{ fontSize: '24px', fontWeight: '700', color: theme.textPrimary }}>
+                            {Number(s3Stats.storage.s3.gb || 0).toFixed(2)} <span style={{ fontSize: '14px', fontWeight: '500', color: theme.textSecondary }}>GB</span>
                           </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: '20px', fontWeight: '700', color: '#3b82f6' }}>
+                          <div style={{ fontSize: '20px', fontWeight: '700', color: theme.info }}>
                             {Number(s3Stats.storage.s3.percentage || 0).toFixed(1)}%
                           </div>
-                          <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                          <div style={{ fontSize: '12px', color: theme.textSecondary }}>
                             {s3Stats.files.s3 || 0} files
                           </div>
                         </div>
                       </div>
-                      <div style={{ height: '8px', background: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ height: '8px', background: theme.bgHover, borderRadius: '4px', overflow: 'hidden' }}>
                         <div style={{
                           width: `${Number(s3Stats.storage.s3.percentage || 0)}%`,
                           height: '100%',
-                          background: 'linear-gradient(90deg, #3b82f6, #2563eb)',
+                          background: theme.brandGradient,
                           transition: 'width 0.3s ease'
                         }}></div>
                       </div>
@@ -1144,25 +1173,25 @@ const AdminDashboard = () => {
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' }}>
                         <div>
-                          <div style={{ fontSize: '13px', fontWeight: '600', color: '#6b7280', marginBottom: '4px' }}>Local Storage</div>
-                          <div style={{ fontSize: '24px', fontWeight: '700', color: '#111827' }}>
-                            {Number(s3Stats.storage.local.gb || 0).toFixed(2)} <span style={{ fontSize: '14px', fontWeight: '500', color: '#6b7280' }}>GB</span>
+                          <div style={{ fontSize: '13px', fontWeight: '600', color: theme.textSecondary, marginBottom: '4px' }}>Local Storage</div>
+                          <div style={{ fontSize: '24px', fontWeight: '700', color: theme.textPrimary }}>
+                            {Number(s3Stats.storage.local.gb || 0).toFixed(2)} <span style={{ fontSize: '14px', fontWeight: '500', color: theme.textSecondary }}>GB</span>
                           </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: '20px', fontWeight: '700', color: '#6b7280' }}>
+                          <div style={{ fontSize: '20px', fontWeight: '700', color: theme.textSecondary }}>
                             {Number(s3Stats.storage.local.percentage || 0).toFixed(1)}%
                           </div>
-                          <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                          <div style={{ fontSize: '12px', color: theme.textSecondary }}>
                             {s3Stats.files.local || 0} files
                           </div>
                         </div>
                       </div>
-                      <div style={{ height: '8px', background: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ height: '8px', background: theme.bgHover, borderRadius: '4px', overflow: 'hidden' }}>
                         <div style={{
                           width: `${Number(s3Stats.storage.local.percentage || 0)}%`,
                           height: '100%',
-                          background: 'linear-gradient(90deg, #6b7280, #4b5563)',
+                          background: theme.neutralGradient,
                           transition: 'width 0.3s ease'
                         }}></div>
                       </div>
@@ -1171,21 +1200,21 @@ const AdminDashboard = () => {
                   <div style={{
                     marginTop: '20px',
                     padding: '16px',
-                    background: '#f9fafb',
+                    background: theme.bgTertiary,
                     borderRadius: '6px',
-                    borderLeft: '3px solid #3b82f6',
+                    borderLeft: `3px solid ${theme.brandPrimary}`,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center'
                   }}>
                     <div>
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#6b7280' }}>Total Storage</div>
-                      <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '2px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Total Storage</div>
+                      <div style={{ fontSize: '12px', color: theme.textTertiary, marginTop: '2px' }}>
                         {s3Stats.files.total || 0} files across all locations
                       </div>
                     </div>
-                    <div style={{ fontSize: '28px', fontWeight: '700', color: '#111827' }}>
-                      {Number(s3Stats.storage.total.gb || 0).toFixed(2)} <span style={{ fontSize: '16px', fontWeight: '500', color: '#6b7280' }}>GB</span>
+                    <div style={{ fontSize: '28px', fontWeight: '700', color: theme.textPrimary }}>
+                      {Number(s3Stats.storage.total.gb || 0).toFixed(2)} <span style={{ fontSize: '16px', fontWeight: '500', color: theme.textSecondary }}>GB</span>
                     </div>
                   </div>
                 </div>
@@ -1247,7 +1276,7 @@ const AdminDashboard = () => {
                       </select>
                     </div>
                   </div>
-                  <div className="form-group" style={{ marginTop: '20px', padding: '16px', background: '#f9fafb', borderRadius: '6px' }}>
+                  <div className="form-group" style={{ marginTop: '20px', padding: '16px', background: theme.bgTertiary, borderRadius: '6px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
                       <input
                         type="checkbox"
@@ -1257,11 +1286,11 @@ const AdminDashboard = () => {
                       />
                       <span style={{ fontWeight: '500' }}>Enable Server-Side Encryption (AES-256)</span>
                     </label>
-                    <div style={{ marginLeft: '26px', marginTop: '8px', fontSize: '13px', color: '#6b7280' }}>
+                    <div style={{ marginLeft: '26px', marginTop: '8px', fontSize: '13px', color: theme.textSecondary }}>
                       Encrypts files at rest in S3. Recommended for sensitive data.
                     </div>
                   </div>
-                  <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #e5e7eb', display: 'flex', gap: '12px' }}>
+                  <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: `1px solid ${theme.border}`, display: 'flex', gap: '12px' }}>
                     <button type="submit" className="btn btn-primary" disabled={savingS3}>
                       {savingS3 ? 'Saving Configuration...' : 'Save Configuration'}
                     </button>
@@ -1289,12 +1318,12 @@ const AdminDashboard = () => {
               </div>
 
               {/* Information Panel */}
-              <div className="card" style={{ background: '#f9fafb', border: '1px solid #e5e7eb' }}>
+              <div className="card" style={{ background: theme.bgTertiary, border: `1px solid ${theme.border}` }}>
                 <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600' }}>Integration Details</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', fontSize: '14px' }}>
                   <div>
-                    <h4 style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '12px' }}>How It Works</h4>
-                    <ul style={{ margin: 0, paddingLeft: '20px', lineHeight: '1.8', color: '#6b7280' }}>
+                    <h4 style={{ fontSize: '13px', fontWeight: '600', color: theme.textPrimary, marginBottom: '12px' }}>How It Works</h4>
+                    <ul style={{ margin: 0, paddingLeft: '20px', lineHeight: '1.8', color: theme.textSecondary }}>
                       <li>When enabled, new uploads are automatically stored in Amazon S3</li>
                       <li>Automatic fallback to local storage if S3 becomes unavailable</li>
                       <li>Existing files remain in their current storage location</li>
@@ -1302,9 +1331,9 @@ const AdminDashboard = () => {
                     </ul>
                   </div>
                   <div>
-                    <h4 style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '12px' }}>Required IAM Permissions</h4>
-                    <div style={{ background: '#fff', padding: '12px', borderRadius: '4px', border: '1px solid #e5e7eb' }}>
-                      <code style={{ fontSize: '12px', color: '#374151', display: 'block', lineHeight: '1.6' }}>
+                    <h4 style={{ fontSize: '13px', fontWeight: '600', color: theme.textPrimary, marginBottom: '12px' }}>Required IAM Permissions</h4>
+                    <div style={{ background: theme.bgCard, padding: '12px', borderRadius: '4px', border: `1px solid ${theme.border}` }}>
+                      <code style={{ fontSize: '12px', color: theme.textPrimary, display: 'block', lineHeight: '1.6' }}>
                         s3:PutObject<br/>
                         s3:GetObject<br/>
                         s3:DeleteObject
@@ -1312,7 +1341,7 @@ const AdminDashboard = () => {
                     </div>
                   </div>
                 </div>
-                <div style={{ marginTop: '20px', padding: '12px 16px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', fontSize: '13px', color: '#1e40af' }}>
+                <div style={{ marginTop: '20px', padding: '12px 16px', background: theme.infoLight, border: `1px solid ${theme.infoBg}`, borderRadius: '6px', fontSize: '13px', color: theme.info }}>
                   <strong>Security:</strong> All files are encrypted at rest with AES-256. Download URLs are time-limited and expire after 1 hour.
                 </div>
               </div>
@@ -1324,7 +1353,7 @@ const AdminDashboard = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <div>
                   <h2 style={{ margin: 0 }}>SSL & HTTPS</h2>
-                  <p style={{ margin: '4px 0 0 0', color: '#6b7280', fontSize: '14px' }}>
+                  <p style={{ margin: '4px 0 0 0', color: theme.textSecondary, fontSize: '14px' }}>
                   Manage certificate sources, Let's Encrypt automation, and HTTPS enforcement
                   </p>
                 </div>
@@ -1336,12 +1365,12 @@ const AdminDashboard = () => {
               </div>
 
               {sslError && (
-                <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '6px', background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c' }}>
+                <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '6px', background: theme.errorLight, border: `1px solid ${theme.errorBg}`, color: theme.error }}>
                   {sslError}
                 </div>
               )}
               {sslMessage && (
-                <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '6px', background: '#ecfdf5', border: '1px solid #bbf7d0', color: '#047857' }}>
+                <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '6px', background: theme.successLight, border: `1px solid ${theme.successBg}`, color: theme.success }}>
                   {sslMessage}
                 </div>
               )}
@@ -1353,27 +1382,27 @@ const AdminDashboard = () => {
                   <div className="card" style={{ marginBottom: '20px' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px' }}>
                       <div>
-                        <div style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Certificate Source</div>
-                        <div style={{ fontSize: '16px', fontWeight: '600', color: '#111827' }}>{currentSslMode === 'uploaded' ? 'Uploaded Certificate' : 'Let\'s Encrypt'}</div>
-                        <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                        <div style={{ fontSize: '12px', fontWeight: '600', color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Certificate Source</div>
+                        <div style={{ fontSize: '16px', fontWeight: '600', color: theme.textPrimary }}>{currentSslMode === 'uploaded' ? 'Uploaded Certificate' : 'Let\'s Encrypt'}</div>
+                        <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>
                           {sslConfig?.primary_domain || 'No domain configured'}
                         </div>
                       </div>
                       <div>
-                        <div style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Certificate Status</div>
-                        <div style={{ fontSize: '16px', fontWeight: '600', color: sslStatusLabel === 'verified' ? '#059669' : '#111827' }}>
+                        <div style={{ fontSize: '12px', fontWeight: '600', color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Certificate Status</div>
+                        <div style={{ fontSize: '16px', fontWeight: '600', color: sslStatusLabel === 'verified' ? theme.success : theme.textPrimary }}>
                           {sslStatusLabel}
                         </div>
-                        <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                        <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>
                           Expires {formatDateTime(sslConfig?.expires_at)}
                         </div>
                       </div>
                       <div>
-                        <div style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Last Verified</div>
-                        <div style={{ fontSize: '16px', fontWeight: '600', color: '#111827' }}>
+                        <div style={{ fontSize: '12px', fontWeight: '600', color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Last Verified</div>
+                        <div style={{ fontSize: '16px', fontWeight: '600', color: theme.textPrimary }}>
                           {formatDateTime(sslConfig?.last_verified_at)}
                         </div>
-                        <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                        <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>
                           {sslConfig?.last_error ? `Last error: ${sslConfig.last_error}` : 'No recent errors'}
                         </div>
                       </div>
@@ -1486,7 +1515,7 @@ const AdminDashboard = () => {
                             disabled={sslProcessing}
                             style={{ width: '100%' }}
                           />
-                          <small style={{ display: 'block', marginTop: '6px', color: '#6b7280' }}>
+                          <small style={{ display: 'block', marginTop: '6px', color: theme.textSecondary }}>
                             Optional host used to verify HTTPS after updates
                           </small>
                         </div>
@@ -1506,7 +1535,7 @@ const AdminDashboard = () => {
                   {currentSslMode === 'uploaded' && (
                     <div className="card" style={{ marginBottom: '20px' }}>
                       <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600' }}>Upload Certificate Files</h3>
-                      <p style={{ marginBottom: '16px', color: '#6b7280', fontSize: '14px' }}>
+                      <p style={{ marginBottom: '16px', color: theme.textSecondary, fontSize: '14px' }}>
                         Provide PEM-encoded files. The certificate should include the full chain (server + intermediates). The private key must be unencrypted.
                       </p>
                       <form onSubmit={submitSslUpload}>
@@ -1519,7 +1548,7 @@ const AdminDashboard = () => {
                             required
                           />
                           {sslUploadForm.certificate_file && (
-                            <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                            <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>
                               Selected: {sslUploadForm.certificate_file.name}
                             </div>
                           )}
@@ -1533,7 +1562,7 @@ const AdminDashboard = () => {
                             required
                           />
                           {sslUploadForm.private_key_file && (
-                            <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                            <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>
                               Selected: {sslUploadForm.private_key_file.name}
                             </div>
                           )}
@@ -1551,7 +1580,7 @@ const AdminDashboard = () => {
                             Clear selection
                           </button>
                           {sslConfig?.uploaded?.uploaded_at && (
-                            <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                            <span style={{ fontSize: '13px', color: theme.textSecondary }}>
                               Last upload: {formatDateTime(sslConfig.uploaded.uploaded_at)}
                             </span>
                           )}
@@ -1560,9 +1589,9 @@ const AdminDashboard = () => {
                     </div>
                   )}
 
-                  <div className="card" style={{ background: '#f9fafb', border: '1px solid #e5e7eb' }}>
+                  <div className="card" style={{ background: theme.bgTertiary, border: `1px solid ${theme.border}` }}>
                     <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px' }}>Operational Notes</h3>
-                    <ul style={{ margin: 0, paddingLeft: '20px', color: '#6b7280', lineHeight: '1.8', fontSize: '13px' }}>
+                    <ul style={{ margin: 0, paddingLeft: '20px', color: theme.textSecondary, lineHeight: '1.8', fontSize: '13px' }}>
                       <li>Let's Encrypt requires ports 80 and 443 to be reachable and DNS A records pointing to this server.</li>
                       <li>Uploaded certificates should be renewed manually before expiry. The platform will warn when expiry is near.</li>
                       <li>Enforcement redirects all HTTP requests to HTTPS and enables HSTS headers.</li>
