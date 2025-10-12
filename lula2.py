@@ -26,6 +26,7 @@ except ImportError:
     exit(6)
 
 try:
+    from dateutil import tz
     from dateutil.parser import parse
 except ImportError:
     print("Couldn't find the python-dateutil module. This is required for lula2.\nOn linux, you might install this via sudo apt-get install python-dateutil\nIf using pip, install it with sudo pip install python-dateutil")
@@ -56,17 +57,19 @@ class ShellOut(object):
         return (rvalue, worked)
 
 class DateRange(object):
-    def __init__(self, start=None, end=None):
+    def __init__(self, start=None, end=None, default_timezone=None):
         self.includes_start = False
         self.includes_end = False
         self.start = None
         self.end = None
+        self._default_tz = self._resolve_timezone(default_timezone)
         if start is not None:
             try:
                 self.start = parse(start)
             except ValueError:
                 print("Unable to parse your begin string as a datetime")
                 exit(20)
+            self.start = self._ensure_timezone(self.start)
             self.includes_start = True
         if end is not None:
             try:
@@ -74,7 +77,41 @@ class DateRange(object):
             except ValueError:
                 print("Unable to parse your end string as a datetime")
                 exit(20)
+            self.end = self._ensure_timezone(self.end)
             self.includes_end = True
+
+    def set_default_timezone(self, tz_value):
+        self._default_tz = self._resolve_timezone(tz_value)
+        self.start = self._ensure_timezone(self.start)
+        self.end = self._ensure_timezone(self.end)
+
+    def _resolve_timezone(self, tz_value):
+        if isinstance(tz_value, str):
+            try:
+                return timezone(tz_value)
+            except Exception:
+                pass
+        if tz_value is not None:
+            return tz_value
+        if 'tz' in globals() and hasattr(tz, 'tzlocal'):
+            return tz.tzlocal()
+        return None
+
+    def _ensure_timezone(self, value):
+        if value is None or value.tzinfo is not None:
+            return value
+        tzinfo = self._default_tz
+        if tzinfo is None:
+            return value
+        if hasattr(tzinfo, 'localize'):
+            try:
+                return tzinfo.localize(value)
+            except ValueError:
+                try:
+                    return tzinfo.localize(value, is_dst=False)
+                except Exception:
+                    return value.replace(tzinfo=tzinfo)
+        return value.replace(tzinfo=tzinfo)
 
     def existIn(self, date):
         to_return = True
@@ -3010,7 +3047,7 @@ elif ops.file is None:
 #     print("new ffmpeg mode")
 #     exit(2)
 
-dr = DateRange(start=ops.begin, end=ops.end)
+dr = DateRange(start=ops.begin, end=ops.end, default_timezone=tzf.best_setting)
 
 # log_package = LogPackage(sys.argv[1])
 # log_package = LogPackage(ops.file,timezone=ops.timezone, daterange=dr, parse_type=ops.parse)
