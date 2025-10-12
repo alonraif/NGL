@@ -158,13 +158,48 @@ def admin_required(f):
 
 def log_audit(db, user_id, action, entity_type=None, entity_id=None, details=None, success=True, error_message=None):
     """Log an audit entry"""
+    # Get real client IP (handles proxy forwarding and CDN services)
+    client_ip = None
+    if request:
+        # Priority 1: Extract from sslip.io hostname (e.g., 192-168-1-1.sslip.io)
+        host = request.headers.get('Host', '')
+        if 'sslip.io' in host:
+            # Extract IP from sslip.io format: 192-168-1-1.sslip.io -> 192.168.1.1
+            parts = host.split('.sslip.io')[0].split('.')
+            if len(parts) == 4 and parts[0].replace('-', '').isdigit():
+                # Found sslip.io format, convert dashes to dots
+                client_ip = host.split('.sslip.io')[0].replace('-', '.')
+
+        # Priority 2: CF-Connecting-IP (Cloudflare's real client IP header)
+        if not client_ip:
+            cf_ip = request.headers.get('CF-Connecting-IP')
+            if cf_ip:
+                client_ip = cf_ip.strip()
+
+        # Priority 3: X-Real-IP (set by nginx or other proxies)
+        if not client_ip:
+            real_ip = request.headers.get('X-Real-IP')
+            if real_ip and not real_ip.startswith('172.'):  # Skip internal/proxy IPs
+                client_ip = real_ip.strip()
+
+        # Priority 4: X-Forwarded-For (from proxy chain)
+        if not client_ip:
+            forwarded_for = request.headers.get('X-Forwarded-For')
+            if forwarded_for:
+                # X-Forwarded-For can be a comma-separated list, take the first (original client)
+                client_ip = forwarded_for.split(',')[0].strip()
+
+        # Priority 5: Fallback to remote_addr (direct connection)
+        if not client_ip:
+            client_ip = request.remote_addr
+
     audit_log = AuditLog(
         user_id=user_id,
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
         details=details,
-        ip_address=request.remote_addr if request else None,
+        ip_address=client_ip,
         user_agent=request.headers.get('User-Agent') if request else None,
         success=success,
         error_message=error_message

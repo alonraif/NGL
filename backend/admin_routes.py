@@ -1468,3 +1468,448 @@ def trigger_ssl_health_check(current_user, db):
 
     except Exception as exc:
         return jsonify({'error': f'Failed to queue SSL health check: {str(exc)}'}), 500
+
+
+# ============================================================================
+# AUDIT LOGS ENDPOINTS
+# ============================================================================
+
+@admin_bp.route('/audit-logs', methods=['GET'])
+@admin_required
+def get_audit_logs(current_user, db):
+    """
+    Get audit logs with filtering, pagination, and search
+
+    Query parameters:
+    - page: Page number (default: 1)
+    - per_page: Items per page (default: 50, max: 100)
+    - user_id: Filter by specific user
+    - action: Filter by action type
+    - entity_type: Filter by entity type
+    - start_date: Start date filter (ISO format)
+    - end_date: End date filter (ISO format)
+    - ip_address: Filter by IP address
+    - success: Filter by success status (true/false/all)
+    - search: Full-text search in details
+    - sort: Sort field (default: timestamp)
+    - order: Sort order (asc/desc, default: desc)
+    """
+    from models import AuditLog, User
+    from datetime import datetime
+    from sqlalchemy import or_, and_, String
+    from geo_service import geolocate_ip
+
+    # Pagination
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 50, type=int), 100)
+
+    # Filters
+    user_id = request.args.get('user_id', type=int)
+    action = request.args.get('action', type=str)
+    entity_type = request.args.get('entity_type', type=str)
+    start_date = request.args.get('start_date', type=str)
+    end_date = request.args.get('end_date', type=str)
+    ip_address = request.args.get('ip_address', type=str)
+    success = request.args.get('success', type=str)
+    search = request.args.get('search', type=str)
+
+    # Sorting
+    sort_field = request.args.get('sort', 'timestamp')
+    sort_order = request.args.get('order', 'desc')
+
+    # Build query
+    query = db.query(AuditLog).outerjoin(User, AuditLog.user_id == User.id)
+
+    # Apply filters
+    if user_id:
+        query = query.filter(AuditLog.user_id == user_id)
+
+    if action:
+        query = query.filter(AuditLog.action == action)
+
+    if entity_type:
+        query = query.filter(AuditLog.entity_type == entity_type)
+
+    if start_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            query = query.filter(AuditLog.timestamp >= start_dt)
+        except ValueError:
+            return jsonify({'error': 'Invalid start_date format'}), 400
+
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            query = query.filter(AuditLog.timestamp <= end_dt)
+        except ValueError:
+            return jsonify({'error': 'Invalid end_date format'}), 400
+
+    if ip_address:
+        query = query.filter(AuditLog.ip_address.like(f'%{ip_address}%'))
+
+    if success and success.lower() != 'all':
+        success_bool = success.lower() == 'true'
+        query = query.filter(AuditLog.success == success_bool)
+
+    if search:
+        # Search in action, entity_type, error_message, and details JSON
+        search_pattern = f'%{search}%'
+        query = query.filter(
+            or_(
+                AuditLog.action.like(search_pattern),
+                AuditLog.entity_type.like(search_pattern),
+                AuditLog.error_message.like(search_pattern),
+                AuditLog.details.cast(String).like(search_pattern)
+            )
+        )
+
+    # Apply sorting
+    if sort_field == 'timestamp':
+        sort_column = AuditLog.timestamp
+    elif sort_field == 'user':
+        sort_column = User.username
+    elif sort_field == 'action':
+        sort_column = AuditLog.action
+    else:
+        sort_column = AuditLog.timestamp
+
+    if sort_order == 'asc':
+        query = query.order_by(sort_column.asc())
+    else:
+        query = query.order_by(sort_column.desc())
+
+    # Get total count before pagination
+    total = query.count()
+
+    # Apply pagination
+    logs = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    # Format response with geolocation
+    results = []
+    for log in logs:
+        # Get user info
+        user = db.query(User).filter(User.id == log.user_id).first() if log.user_id else None
+
+        # Get geolocation for IP
+        geo = None
+        if log.ip_address:
+            geo = geolocate_ip(log.ip_address)
+
+        result = {
+            'id': log.id,
+            'timestamp': log.timestamp.isoformat() if log.timestamp else None,
+            'user_id': log.user_id,
+            'username': user.username if user else 'System',
+            'user_email': user.email if user else None,
+            'action': log.action,
+            'entity_type': log.entity_type,
+            'entity_id': log.entity_id,
+            'details': log.details,
+            'ip_address': log.ip_address,
+            'user_agent': log.user_agent,
+            'success': log.success,
+            'error_message': log.error_message,
+            'geolocation': geo
+        }
+
+        # Flatten geolocation data for easier frontend access
+        if geo:
+            result['geo_country'] = geo.get('country_name', geo.get('country', ''))
+            result['geo_country_code'] = geo.get('country', '')
+            result['geo_city'] = geo.get('city', '')
+            result['geo_region'] = geo.get('region', '')
+            result['geo_flag'] = geo.get('flag', '')
+            result['geo_latitude'] = geo.get('latitude')
+            result['geo_longitude'] = geo.get('longitude')
+            result['geo_timezone'] = geo.get('timezone', '')
+            result['geo_source'] = geo.get('source', '')
+        else:
+            result['geo_country'] = None
+            result['geo_country_code'] = None
+            result['geo_city'] = None
+            result['geo_region'] = None
+            result['geo_flag'] = None
+            result['geo_latitude'] = None
+            result['geo_longitude'] = None
+            result['geo_timezone'] = None
+            result['geo_source'] = None
+
+        results.append(result)
+
+    # Log that admin viewed audit logs (meta-auditing)
+    log_audit(db, current_user.id, 'view_audit_logs', 'audit_log', None, {
+        'filters': {
+            'user_id': user_id,
+            'action': action,
+            'entity_type': entity_type,
+            'start_date': start_date,
+            'end_date': end_date,
+            'search': search
+        },
+        'page': page,
+        'per_page': per_page
+    })
+
+    return jsonify({
+        'logs': results,
+        'pagination': {
+            'page': page,
+            'per_page': per_page,
+            'total': total,
+            'pages': (total + per_page - 1) // per_page
+        }
+    }), 200
+
+
+@admin_bp.route('/audit-stats', methods=['GET'])
+@admin_required
+def get_audit_stats(current_user, db):
+    """
+    Get audit log statistics
+
+    Query parameters:
+    - period: Time period (24h, 7d, 30d, all) default: 7d
+    """
+    from models import AuditLog, User
+    from datetime import datetime, timedelta
+    from sqlalchemy import func, distinct
+    from geo_service import geolocate_ip
+
+    period = request.args.get('period', '7d')
+
+    # Calculate start date based on period
+    now = datetime.utcnow()
+    if period == '24h':
+        start_date = now - timedelta(hours=24)
+    elif period == '7d':
+        start_date = now - timedelta(days=7)
+    elif period == '30d':
+        start_date = now - timedelta(days=30)
+    else:  # 'all'
+        start_date = datetime.min
+
+    # Base query
+    base_query = db.query(AuditLog).filter(AuditLog.timestamp >= start_date)
+
+    # Total events
+    total_events = base_query.count()
+
+    # Failed login attempts
+    failed_logins = base_query.filter(
+        AuditLog.action == 'login',
+        AuditLog.success == False
+    ).count()
+
+    # Successful logins
+    successful_logins = base_query.filter(
+        AuditLog.action == 'login',
+        AuditLog.success == True
+    ).count()
+
+    # Most active users
+    user_activity = base_query.join(User, AuditLog.user_id == User.id).group_by(
+        User.id, User.username
+    ).with_entities(
+        User.id,
+        User.username,
+        func.count(AuditLog.id).label('count')
+    ).order_by(func.count(AuditLog.id).desc()).limit(5).all()
+
+    most_active_users = [
+        {'user_id': user_id, 'username': username, 'count': count}
+        for user_id, username, count in user_activity
+    ]
+
+    # Action type breakdown
+    action_breakdown = base_query.group_by(AuditLog.action).with_entities(
+        AuditLog.action,
+        func.count(AuditLog.id).label('count')
+    ).order_by(func.count(AuditLog.id).desc()).limit(10).all()
+
+    action_stats = [
+        {'action': action, 'count': count}
+        for action, count in action_breakdown
+    ]
+
+    # Geographic distribution (unique IPs)
+    unique_ips = base_query.filter(AuditLog.ip_address.isnot(None)).with_entities(
+        distinct(AuditLog.ip_address)
+    ).all()
+
+    # Geolocate unique IPs
+    countries = {}
+    cities = {}
+    for (ip,) in unique_ips:
+        geo = geolocate_ip(ip)
+        if geo:
+            country = geo.get('country_name', 'Unknown')
+            city = geo.get('city', 'Unknown')
+
+            countries[country] = countries.get(country, 0) + 1
+            cities[f"{city}, {country}"] = cities.get(f"{city}, {country}", 0) + 1
+
+    top_countries = sorted(countries.items(), key=lambda x: x[1], reverse=True)[:10]
+    top_cities = sorted(cities.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    # Failed operations (not just logins)
+    failed_operations = base_query.filter(AuditLog.success == False).count()
+
+    # Recent security events
+    security_actions = ['login', 'logout', 'change_password', 'reset_user_password', 'update_user']
+    recent_security_events = base_query.filter(AuditLog.action.in_(security_actions)).order_by(
+        AuditLog.timestamp.desc()
+    ).limit(10).all()
+
+    security_events = []
+    for event in recent_security_events:
+        user = db.query(User).filter(User.id == event.user_id).first() if event.user_id else None
+        security_events.append({
+            'timestamp': event.timestamp.isoformat() if event.timestamp else None,
+            'username': user.username if user else 'System',
+            'action': event.action,
+            'success': event.success,
+            'ip_address': event.ip_address
+        })
+
+    return jsonify({
+        'period': period,
+        'total_events': total_events,
+        'failed_logins': failed_logins,
+        'successful_logins': successful_logins,
+        'failed_operations': failed_operations,
+        'most_active_users': most_active_users,
+        'action_breakdown': action_stats,
+        'top_countries': [{'country': c, 'count': count} for c, count in top_countries],
+        'top_cities': [{'city': c, 'count': count} for c, count in top_cities],
+        'unique_ips': len(unique_ips),
+        'unique_countries': len(countries),
+        'recent_security_events': security_events
+    }), 200
+
+
+@admin_bp.route('/audit-export', methods=['GET'])
+@admin_required
+def export_audit_logs(current_user, db):
+    """
+    Export audit logs to CSV
+
+    Uses same filters as /audit-logs endpoint
+    """
+    import csv
+    import io
+    from models import AuditLog, User
+    from datetime import datetime
+    from sqlalchemy import or_
+    from geo_service import geolocate_ip
+
+    # Get filters from query parameters (same as get_audit_logs)
+    user_id = request.args.get('user_id', type=int)
+    action = request.args.get('action', type=str)
+    entity_type = request.args.get('entity_type', type=str)
+    start_date = request.args.get('start_date', type=str)
+    end_date = request.args.get('end_date', type=str)
+    ip_address = request.args.get('ip_address', type=str)
+    success = request.args.get('success', type=str)
+    search = request.args.get('search', type=str)
+
+    # Build query (same as get_audit_logs, but no pagination)
+    query = db.query(AuditLog).outerjoin(User, AuditLog.user_id == User.id)
+
+    # Apply filters (same as above)
+    if user_id:
+        query = query.filter(AuditLog.user_id == user_id)
+    if action:
+        query = query.filter(AuditLog.action == action)
+    if entity_type:
+        query = query.filter(AuditLog.entity_type == entity_type)
+    if start_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            query = query.filter(AuditLog.timestamp >= start_dt)
+        except ValueError:
+            return jsonify({'error': 'Invalid start_date format'}), 400
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            query = query.filter(AuditLog.timestamp <= end_dt)
+        except ValueError:
+            return jsonify({'error': 'Invalid end_date format'}), 400
+    if ip_address:
+        query = query.filter(AuditLog.ip_address.like(f'%{ip_address}%'))
+    if success and success.lower() != 'all':
+        success_bool = success.lower() == 'true'
+        query = query.filter(AuditLog.success == success_bool)
+    if search:
+        search_pattern = f'%{search}%'
+        query = query.filter(
+            or_(
+                AuditLog.action.like(search_pattern),
+                AuditLog.entity_type.like(search_pattern),
+                AuditLog.error_message.like(search_pattern)
+            )
+        )
+
+    # Order by timestamp
+    query = query.order_by(AuditLog.timestamp.desc())
+
+    # Limit to prevent memory issues (max 10,000 records)
+    logs = query.limit(10000).all()
+
+    # Create CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Write header
+    writer.writerow([
+        'Timestamp',
+        'Username',
+        'Action',
+        'Entity Type',
+        'Entity ID',
+        'IP Address',
+        'Country',
+        'City',
+        'Success',
+        'Error Message',
+        'User Agent',
+        'Details'
+    ])
+
+    # Write data
+    for log in logs:
+        user = db.query(User).filter(User.id == log.user_id).first() if log.user_id else None
+        geo = geolocate_ip(log.ip_address) if log.ip_address else None
+
+        writer.writerow([
+            log.timestamp.isoformat() if log.timestamp else '',
+            user.username if user else 'System',
+            log.action or '',
+            log.entity_type or '',
+            log.entity_id or '',
+            log.ip_address or '',
+            geo.get('country_name', '') if geo else '',
+            geo.get('city', '') if geo else '',
+            'Success' if log.success else 'Failed',
+            log.error_message or '',
+            log.user_agent or '',
+            str(log.details) if log.details else ''
+        ])
+
+    # Log the export
+    log_audit(db, current_user.id, 'export_audit_logs', 'audit_log', None, {
+        'count': len(logs),
+        'filters': {
+            'user_id': user_id,
+            'action': action,
+            'entity_type': entity_type,
+            'start_date': start_date,
+            'end_date': end_date
+        }
+    })
+
+    # Return CSV
+    output.seek(0)
+    return output.getvalue(), 200, {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': f'attachment; filename=audit_logs_{datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.csv'
+    }

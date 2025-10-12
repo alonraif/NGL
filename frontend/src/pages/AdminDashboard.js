@@ -86,6 +86,26 @@ const AdminDashboard = () => {
   const [sslMessage, setSslMessage] = useState(null);
   const [sslError, setSslError] = useState(null);
 
+  // Audit logs state
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditStats, setAuditStats] = useState(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotalPages, setAuditTotalPages] = useState(1);
+  const [auditFilters, setAuditFilters] = useState({
+    user_id: '',
+    action: '',
+    entity_type: '',
+    start_date: '',
+    end_date: '',
+    ip_address: '',
+    success: '',
+    search: '',
+    sort: 'timestamp',
+    order: 'desc',
+    per_page: 50
+  });
+
   const fetchSslConfig = useCallback(async (showSpinner = true) => {
     try {
       if (showSpinner) {
@@ -154,6 +174,81 @@ const AdminDashboard = () => {
       console.error('Failed to fetch analyses:', error);
     }
   }, [selectedUserId]);
+
+  // Audit logs functions
+  const fetchAuditLogs = useCallback(async () => {
+    try {
+      setAuditLoading(true);
+      const params = {
+        page: auditPage,
+        per_page: auditFilters.per_page,
+        sort: auditFilters.sort,
+        order: auditFilters.order
+      };
+
+      // Add filters if set
+      if (auditFilters.user_id) params.user_id = auditFilters.user_id;
+      if (auditFilters.action) params.action = auditFilters.action;
+      if (auditFilters.entity_type) params.entity_type = auditFilters.entity_type;
+      if (auditFilters.start_date) params.start_date = auditFilters.start_date;
+      if (auditFilters.end_date) params.end_date = auditFilters.end_date;
+      if (auditFilters.ip_address) params.ip_address = auditFilters.ip_address;
+      if (auditFilters.success) params.success = auditFilters.success;
+      if (auditFilters.search) params.search = auditFilters.search;
+
+      const response = await axios.get('/api/admin/audit-logs', { params });
+      setAuditLogs(response.data.logs);
+      setAuditPage(response.data.pagination.page);
+      setAuditTotalPages(response.data.pagination.pages);
+    } catch (error) {
+      console.error('Failed to fetch audit logs:', error);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [auditPage, auditFilters]);
+
+  const fetchAuditStats = useCallback(async () => {
+    try {
+      const response = await axios.get('/api/admin/audit-stats');
+      setAuditStats(response.data);
+    } catch (error) {
+      console.error('Failed to fetch audit stats:', error);
+    }
+  }, []);
+
+  const exportAuditLogs = async () => {
+    try {
+      const params = {
+        sort: auditFilters.sort,
+        order: auditFilters.order
+      };
+      if (auditFilters.user_id) params.user_id = auditFilters.user_id;
+      if (auditFilters.action) params.action = auditFilters.action;
+      if (auditFilters.entity_type) params.entity_type = auditFilters.entity_type;
+      if (auditFilters.start_date) params.start_date = auditFilters.start_date;
+      if (auditFilters.end_date) params.end_date = auditFilters.end_date;
+      if (auditFilters.ip_address) params.ip_address = auditFilters.ip_address;
+      if (auditFilters.success) params.success = auditFilters.success;
+      if (auditFilters.search) params.search = auditFilters.search;
+
+      const response = await axios.get('/api/admin/audit-export', {
+        params,
+        responseType: 'blob'
+      });
+
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `audit_logs_${new Date().toISOString()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      console.error('Failed to export audit logs:', error);
+      alert('Failed to export audit logs');
+    }
+  };
 
   const deleteAnalysis = async (analysisId, isHard = false) => {
     const confirmMsg = isHard
@@ -456,7 +551,17 @@ const AdminDashboard = () => {
     if (activeTab === 'analyses') {
       fetchAnalyses();
     }
-  }, [activeTab, fetchAnalyses]);
+    if (activeTab === 'audit') {
+      fetchAuditLogs();
+      fetchAuditStats();
+    }
+  }, [activeTab, fetchAnalyses, fetchAuditLogs, fetchAuditStats]);
+
+  useEffect(() => {
+    if (activeTab === 'audit') {
+      fetchAuditLogs();
+    }
+  }, [auditPage, auditFilters, activeTab, fetchAuditLogs]);
 
   const sslStatus = sslConfig?.certificate_status;
 
@@ -609,6 +714,12 @@ const AdminDashboard = () => {
               onClick={() => setActiveTab('ssl')}
             >
               SSL
+            </button>
+            <button
+              className={`admin-tab ${activeTab === 'audit' ? 'active' : ''}`}
+              onClick={() => setActiveTab('audit')}
+            >
+              Audit Logs
             </button>
           </div>
 
@@ -1599,6 +1710,392 @@ const AdminDashboard = () => {
                     </ul>
                   </div>
                 </>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'audit' && (
+            <div className="admin-content">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div>
+                  <h2 style={{ margin: 0 }}>Audit Logs</h2>
+                  <p style={{ margin: '4px 0 0 0', color: theme.textSecondary, fontSize: '14px' }}>
+                    Complete security audit trail with IP geolocation and user activity tracking
+                  </p>
+                </div>
+                <button
+                  className="btn btn-primary"
+                  onClick={exportAuditLogs}
+                  style={{ fontSize: '14px' }}
+                >
+                  Export to CSV
+                </button>
+              </div>
+
+              {/* Statistics Cards */}
+              {auditStats && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+                  <div className="card" style={{ padding: '16px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '28px', fontWeight: '700', color: theme.brandPrimary }}>{auditStats.total_logs}</div>
+                    <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>Total Events</div>
+                  </div>
+                  <div className="card" style={{ padding: '16px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '28px', fontWeight: '700', color: theme.success }}>{auditStats.today_count}</div>
+                    <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>Events Today</div>
+                  </div>
+                  <div className="card" style={{ padding: '16px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '28px', fontWeight: '700', color: theme.info }}>{auditStats.unique_users}</div>
+                    <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>Active Users</div>
+                  </div>
+                  <div className="card" style={{ padding: '16px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '28px', fontWeight: '700', color: theme.warning }}>{auditStats.failed_logins || 0}</div>
+                    <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>Failed Logins</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Filters Panel */}
+              <div className="card" style={{ marginBottom: '20px', padding: '16px' }}>
+                <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600' }}>Filters</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                  <div className="form-group">
+                    <label style={{ fontSize: '13px', fontWeight: '500', marginBottom: '6px', display: 'block' }}>User</label>
+                    <select
+                      value={auditFilters.user_id}
+                      onChange={(e) => setAuditFilters({...auditFilters, user_id: e.target.value, page: 1})}
+                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}` }}
+                    >
+                      <option value="">All Users</option>
+                      {users.map(u => (
+                        <option key={u.id} value={u.id}>{u.username}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontSize: '13px', fontWeight: '500', marginBottom: '6px', display: 'block' }}>Action</label>
+                    <select
+                      value={auditFilters.action}
+                      onChange={(e) => setAuditFilters({...auditFilters, action: e.target.value, page: 1})}
+                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}` }}
+                    >
+                      <option value="">All Actions</option>
+                      <option value="login">Login</option>
+                      <option value="logout">Logout</option>
+                      <option value="upload_and_parse">Upload & Parse</option>
+                      <option value="download_log_file">Download File</option>
+                      <option value="view_analysis">View Analysis</option>
+                      <option value="cancel_analysis">Cancel Analysis</option>
+                      <option value="search_analyses">Search Analyses</option>
+                      <option value="create_user">Create User</option>
+                      <option value="update_user">Update User</option>
+                      <option value="delete_user">Delete User</option>
+                      <option value="change_password">Change Password</option>
+                      <option value="view_audit_logs">View Audit Logs</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontSize: '13px', fontWeight: '500', marginBottom: '6px', display: 'block' }}>Entity Type</label>
+                    <select
+                      value={auditFilters.entity_type}
+                      onChange={(e) => setAuditFilters({...auditFilters, entity_type: e.target.value, page: 1})}
+                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}` }}
+                    >
+                      <option value="">All Types</option>
+                      <option value="user">User</option>
+                      <option value="analysis">Analysis</option>
+                      <option value="log_file">Log File</option>
+                      <option value="parser">Parser</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontSize: '13px', fontWeight: '500', marginBottom: '6px', display: 'block' }}>Status</label>
+                    <select
+                      value={auditFilters.success}
+                      onChange={(e) => setAuditFilters({...auditFilters, success: e.target.value, page: 1})}
+                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}` }}
+                    >
+                      <option value="">All</option>
+                      <option value="true">Success</option>
+                      <option value="false">Failed</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontSize: '13px', fontWeight: '500', marginBottom: '6px', display: 'block' }}>Start Date</label>
+                    <input
+                      type="datetime-local"
+                      value={auditFilters.start_date}
+                      onChange={(e) => setAuditFilters({...auditFilters, start_date: e.target.value, page: 1})}
+                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}` }}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ fontSize: '13px', fontWeight: '500', marginBottom: '6px', display: 'block' }}>End Date</label>
+                    <input
+                      type="datetime-local"
+                      value={auditFilters.end_date}
+                      onChange={(e) => setAuditFilters({...auditFilters, end_date: e.target.value, page: 1})}
+                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}` }}
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                    <label style={{ fontSize: '13px', fontWeight: '500', marginBottom: '6px', display: 'block' }}>Search (IP, details)</label>
+                    <input
+                      type="text"
+                      placeholder="Search audit logs..."
+                      value={auditFilters.search}
+                      onChange={(e) => setAuditFilters({...auditFilters, search: e.target.value, page: 1})}
+                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}` }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '16px', display: 'flex', gap: '12px' }}>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setAuditFilters({
+                        user_id: '',
+                        action: '',
+                        entity_type: '',
+                        start_date: '',
+                        end_date: '',
+                        ip_address: '',
+                        success: '',
+                        search: '',
+                        sort: 'timestamp',
+                        order: 'desc',
+                        per_page: 50
+                      });
+                      setAuditPage(1);
+                    }}
+                  >
+                    Clear Filters
+                  </button>
+                </div>
+              </div>
+
+              {/* Audit Logs Table */}
+              <div className="card">
+                <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600' }}>Audit Events</h3>
+
+                {auditLoading ? (
+                  <p style={{ textAlign: 'center', padding: '40px', color: theme.textSecondary }}>Loading audit logs...</p>
+                ) : auditLogs.length === 0 ? (
+                  <p style={{ textAlign: 'center', padding: '40px', color: theme.textSecondary }}>No audit logs found</p>
+                ) : (
+                  <>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: `2px solid ${theme.border}` }}>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Timestamp</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>User</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Action</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Entity</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>IP Address</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Location</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Status</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Details</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {auditLogs.map((log, idx) => (
+                            <tr
+                              key={log.id}
+                              style={{
+                                borderBottom: `1px solid ${theme.border}`,
+                                background: idx % 2 === 0 ? theme.bgCard : theme.bgSecondary
+                              }}
+                            >
+                              <td style={{ padding: '12px', fontSize: '13px', whiteSpace: 'nowrap' }}>
+                                {new Date(log.timestamp).toLocaleString()}
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '13px', fontWeight: '500' }}>
+                                {log.username || <span style={{ color: theme.textTertiary }}>System</span>}
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '13px' }}>
+                                <span style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  background: theme.bgTertiary,
+                                  fontSize: '12px',
+                                  fontWeight: '500'
+                                }}>
+                                  {log.action}
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '13px' }}>
+                                {log.entity_type ? (
+                                  <span style={{ color: theme.textSecondary }}>
+                                    {log.entity_type}
+                                    {log.entity_id && <span style={{ color: theme.textTertiary }}> #{log.entity_id}</span>}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: theme.textTertiary }}>—</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '13px', fontFamily: 'monospace' }}>
+                                {log.ip_address || <span style={{ color: theme.textTertiary }}>—</span>}
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '13px' }}>
+                                {log.geo_city || log.geo_country ? (
+                                  <div>
+                                    {log.geo_flag && <span style={{ marginRight: '6px' }}>{log.geo_flag}</span>}
+                                    <span>{log.geo_city}, {log.geo_country}</span>
+                                  </div>
+                                ) : (
+                                  <span style={{ color: theme.textTertiary }}>—</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px' }}>
+                                {log.success ? (
+                                  <span className="status-badge status-success" style={{ fontSize: '11px' }}>Success</span>
+                                ) : (
+                                  <span className="status-badge status-error" style={{ fontSize: '11px' }}>Failed</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '13px', maxWidth: '300px' }}>
+                                {log.error_message ? (
+                                  <span style={{ color: theme.error }}>{log.error_message}</span>
+                                ) : log.details ? (
+                                  <details style={{ cursor: 'pointer' }}>
+                                    <summary style={{ fontSize: '12px', color: theme.textSecondary }}>View details</summary>
+                                    <pre style={{
+                                      marginTop: '8px',
+                                      padding: '8px',
+                                      background: theme.codeBg,
+                                      borderRadius: '4px',
+                                      fontSize: '11px',
+                                      overflow: 'auto',
+                                      maxWidth: '400px'
+                                    }}>
+                                      {JSON.stringify(log.details, null, 2)}
+                                    </pre>
+                                  </details>
+                                ) : (
+                                  <span style={{ color: theme.textTertiary }}>—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination */}
+                    <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: '13px', color: theme.textSecondary }}>
+                        Page {auditPage} of {auditTotalPages}
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => setAuditPage(p => Math.max(1, p - 1))}
+                          disabled={auditPage === 1}
+                          style={{ fontSize: '13px', padding: '6px 12px' }}
+                        >
+                          Previous
+                        </button>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => setAuditPage(p => Math.min(auditTotalPages, p + 1))}
+                          disabled={auditPage === auditTotalPages}
+                          style={{ fontSize: '13px', padding: '6px 12px' }}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Geographic Distribution */}
+              {auditStats?.geographic_distribution && auditStats.geographic_distribution.length > 0 && (
+                <div className="card" style={{ marginTop: '20px' }}>
+                  <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600' }}>Geographic Distribution</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
+                    {auditStats.geographic_distribution.slice(0, 10).map((location, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          padding: '12px',
+                          background: theme.bgTertiary,
+                          borderRadius: '6px',
+                          border: `1px solid ${theme.border}`
+                        }}
+                      >
+                        <div style={{ fontSize: '20px', marginBottom: '4px' }}>{location.flag}</div>
+                        <div style={{ fontSize: '14px', fontWeight: '500' }}>{location.country}</div>
+                        <div style={{ fontSize: '24px', fontWeight: '700', color: theme.brandPrimary, marginTop: '8px' }}>
+                          {location.count}
+                        </div>
+                        <div style={{ fontSize: '12px', color: theme.textSecondary }}>events</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Action Breakdown */}
+              {auditStats?.action_breakdown && auditStats.action_breakdown.length > 0 && (
+                <div className="card" style={{ marginTop: '20px' }}>
+                  <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600' }}>Action Breakdown</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '12px' }}>
+                    {auditStats.action_breakdown.map((action, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          padding: '12px 16px',
+                          background: theme.bgTertiary,
+                          borderRadius: '6px',
+                          border: `1px solid ${theme.border}`,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <span style={{ fontSize: '13px', fontWeight: '500' }}>{action.action}</span>
+                        <span style={{ fontSize: '16px', fontWeight: '700', color: theme.brandPrimary }}>{action.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* User Activity */}
+              {auditStats?.user_activity && auditStats.user_activity.length > 0 && (
+                <div className="card" style={{ marginTop: '20px' }}>
+                  <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600' }}>Most Active Users</h3>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: `2px solid ${theme.border}` }}>
+                        <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>User</th>
+                        <th style={{ padding: '12px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Actions</th>
+                        <th style={{ padding: '12px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Last Activity</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditStats.user_activity.slice(0, 10).map((user, idx) => (
+                        <tr key={idx} style={{ borderBottom: `1px solid ${theme.border}` }}>
+                          <td style={{ padding: '12px', fontSize: '13px', fontWeight: '500' }}>{user.username}</td>
+                          <td style={{ padding: '12px', fontSize: '14px', fontWeight: '700', color: theme.brandPrimary, textAlign: 'right' }}>
+                            {user.action_count}
+                          </td>
+                          <td style={{ padding: '12px', fontSize: '13px', color: theme.textSecondary, textAlign: 'right' }}>
+                            {user.last_action ? new Date(user.last_action).toLocaleString() : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           )}

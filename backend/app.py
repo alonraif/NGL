@@ -31,7 +31,9 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import json
 
 app = Flask(__name__)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+# Trust 2 proxies in the chain (e.g., CDN + nginx)
+# This will properly extract the real client IP from X-Forwarded-For
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=2, x_proto=1, x_host=1, x_port=1)
 
 # Prefer HTTPS URLs when generating external links
 app.config['PREFERRED_URL_SCHEME'] = 'https'
@@ -661,6 +663,12 @@ def cancel_analysis(current_user, db):
         # Clean up Redis
         redis_client.delete(user_analysis_key)
 
+        # Log cancellation
+        log_audit(db, current_user.id, 'cancel_analysis', 'analysis', analysis_id, {
+            'session_name': analysis.session_name,
+            'parse_mode': analysis.parse_mode
+        })
+
         app.logger.info(f"Analysis {analysis_id} cancelled by user {current_user.username}")
 
         return jsonify({
@@ -719,6 +727,12 @@ def get_analysis(analysis_id, current_user, db):
         analysis = query.first()
         if not analysis:
             return jsonify({'error': 'Analysis not found'}), 404
+
+        # Log viewing analysis result
+        log_audit(db, current_user.id, 'view_analysis', 'analysis', analysis_id, {
+            'session_name': analysis.session_name,
+            'parse_mode': analysis.parse_mode
+        })
 
         # Get results
         result = db.query(AnalysisResult).filter(AnalysisResult.analysis_id == analysis_id).first()
@@ -831,6 +845,12 @@ def search_analyses(current_user, db):
             (Analysis.session_name.ilike(search_pattern) |
              Analysis.zendesk_case.ilike(search_pattern))
         ).order_by(Analysis.created_at.desc()).all()
+
+        # Log search query
+        log_audit(db, current_user.id, 'search_analyses', 'analysis', None, {
+            'query': search_query,
+            'results_count': len(analyses)
+        })
 
         return jsonify({
             'analyses': [{
