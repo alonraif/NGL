@@ -382,19 +382,19 @@ function UploadPage() {
         {(loading || isCompleted) && activeJob && (
           <div className="card" style={{
             marginBottom: '24px',
-            background: isCompleted ? '#f0fdf4' : '#eff6ff',
-            border: isCompleted ? '1px solid #22c55e' : '1px solid #3b82f6'
+            background: isCompleted ? 'var(--success-light)' : 'var(--info-light)',
+            border: isCompleted ? '1px solid var(--success)' : '1px solid var(--brand-primary)'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <h3 style={{ marginTop: 0, color: isCompleted ? '#15803d' : '#1e40af' }}>
+                <h3 style={{ marginTop: 0, color: isCompleted ? 'var(--success)' : 'var(--info)' }}>
                   {isCompleted ? '✅ Parsing Complete' : '📊 Parsing Job'}
                 </h3>
-                <p style={{ color: isCompleted ? '#166534' : '#1e3a8a', margin: '8px 0' }}>
+                <p style={{ color: isCompleted ? 'var(--success)' : 'var(--info)', margin: '8px 0' }}>
                   <strong>Session:</strong> {activeJob.sessionName}
                   {activeJob.zendeskCase && <> | <strong>Case:</strong> {activeJob.zendeskCase}</>}
                 </p>
-                <p style={{ color: isCompleted ? '#166534' : '#1e3a8a', margin: '4px 0' }}>
+                <p style={{ color: isCompleted ? 'var(--success)' : 'var(--info)', margin: '4px 0' }}>
                   <strong>File:</strong> {activeJob.filename}
                 </p>
               </div>
@@ -420,7 +420,7 @@ function UploadPage() {
                     <>
                       <p><strong>Source:</strong> URL</p>
                       <p><strong>File:</strong> {file.name}</p>
-                      <p style={{ fontSize: '0.85rem', wordBreak: 'break-all', color: '#666' }}>
+                      <p style={{ fontSize: '0.85rem', wordBreak: 'break-all', color: 'var(--text-secondary)' }}>
                         {file.url}
                       </p>
                     </>
@@ -547,25 +547,25 @@ function UploadPage() {
 
         {downloadProgress && (
           <div className="card" style={{ marginBottom: '24px' }}>
-            <h3 style={{ marginTop: 0, color: '#1e40af' }}>Downloading File from URL...</h3>
+            <h3 style={{ marginTop: 0, color: 'var(--info)' }}>Downloading File from URL...</h3>
             <div style={{ marginBottom: '12px' }}>
               <div style={{
                 width: '100%',
                 height: '12px',
-                background: '#e5e7eb',
+                background: 'var(--border-color)',
                 borderRadius: '6px',
                 overflow: 'hidden'
               }}>
                 <div style={{
                   width: `${downloadProgress.percent}%`,
                   height: '100%',
-                  background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
+                  background: 'linear-gradient(90deg, var(--brand-gradient-start) 0%, var(--brand-gradient-end) 100%)',
                   transition: 'width 0.3s ease',
                   borderRadius: '6px'
                 }}></div>
               </div>
             </div>
-            <div style={{ fontSize: '14px', color: '#6b7280' }}>
+            <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
               {downloadProgress.total ? (
                 <>
                   {(downloadProgress.downloaded / (1024 * 1024)).toFixed(2)} MB / {(downloadProgress.total / (1024 * 1024)).toFixed(2)} MB

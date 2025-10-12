@@ -23,13 +23,15 @@ function RawOutput({ output }) {
           style={{
             width: '100%',
             padding: '12px',
-            border: '2px solid #e0e0e0',
+            border: '2px solid var(--border-color)',
             borderRadius: '6px',
             fontSize: '1rem',
+            background: 'var(--bg-card)',
+            color: 'var(--text-primary)'
           }}
         />
         {searchTerm && (
-          <p style={{ marginTop: '8px', color: '#666', fontSize: '0.9rem' }}>
+          <p style={{ marginTop: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
             Found {filteredLines.length} of {lines.length} lines
           </p>
         )}
@@ -61,7 +63,7 @@ function RawOutput({ output }) {
             alert('Output copied to clipboard!');
           }}
           className="btn btn-primary"
-          style={{ width: 'auto', background: '#82ca9d' }}
+          style={{ width: 'auto', background: 'var(--success)' }}
         >
           📋 Copy to Clipboard
         </button>

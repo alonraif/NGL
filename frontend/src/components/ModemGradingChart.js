@@ -18,6 +18,22 @@ const ModemGradingChart = ({ data }) => {
   const [selectedModem, setSelectedModem] = useState('all');
   const timelineRef = useRef(null);
   const qualityRef = useRef(null);
+  const successColor = 'var(--success)';
+  const errorColor = 'var(--error)';
+  const cardBackground = 'var(--bg-card)';
+  const surfaceTertiary = 'var(--bg-tertiary)';
+  const borderColor = 'var(--border-color)';
+  const textPrimary = 'var(--text-primary)';
+  const textSecondary = 'var(--text-secondary)';
+  const textTertiary = 'var(--text-tertiary)';
+  const infoColor = 'var(--info)';
+  const infoBg = 'var(--info-bg)';
+  const infoLight = 'var(--info-light)';
+  const warningBg = 'var(--warning-bg)';
+  const warningColor = 'var(--warning)';
+  const brandPrimary = 'var(--brand-primary)';
+  const brandPrimaryHover = 'var(--brand-primary-hover)';
+  const shadowColor = 'var(--shadow-color)';
 
   // Process data for visualization
   const { modemStats, qualityData, timelineByModem } = useMemo(() => {
@@ -140,7 +156,7 @@ const ModemGradingChart = ({ data }) => {
         cx={cx}
         cy={cy}
         r={4}
-        fill={isFull ? '#059669' : '#dc2626'}
+        fill={isFull ? successColor : errorColor}
         stroke="#ffffff"
         strokeWidth={1.5}
       />
@@ -148,17 +164,17 @@ const ModemGradingChart = ({ data }) => {
   };
 
   if (!data || !data.modems || data.modems.length === 0) {
-    return (
-      <div style={{
-        padding: '40px',
-        textAlign: 'center',
-        color: '#666',
-        background: '#f8f9fa',
-        borderRadius: '8px',
-        margin: '20px 0'
-      }}>
-        No modem grading data available
-      </div>
+      return (
+        <div style={{
+          padding: '40px',
+          textAlign: 'center',
+          color: textSecondary,
+          background: surfaceTertiary,
+          borderRadius: '8px',
+          margin: '20px 0'
+        }}>
+          No modem grading data available
+        </div>
     );
   }
 
@@ -175,11 +191,11 @@ const ModemGradingChart = ({ data }) => {
           <div
             key={stat.modem_id}
             style={{
-              background: 'white',
+              background: cardBackground,
               padding: '20px',
               borderRadius: '12px',
-              border: `3px solid ${stat.current_service === 'Full' ? '#059669' : '#dc2626'}`,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+              border: `3px solid ${stat.current_service === 'Full' ? successColor : errorColor}`,
+              boxShadow: `0 2px 8px ${shadowColor}`,
               cursor: 'pointer',
               transition: 'all 0.2s',
               opacity: selectedModem === 'all' || selectedModem === stat.modem_id.toString() ? 1 : 0.6,
@@ -195,11 +211,11 @@ const ModemGradingChart = ({ data }) => {
               justifyContent: 'space-between',
               marginBottom: '10px'
             }}>
-              <h3 style={{ margin: 0, color: '#333', fontSize: '18px' }}>
+              <h3 style={{ margin: 0, color: textPrimary, fontSize: '18px' }}>
                 Modem {stat.modem_id}
               </h3>
               <span style={{
-                background: stat.current_service === 'Full' ? '#059669' : '#dc2626',
+                background: stat.current_service === 'Full' ? successColor : errorColor,
                 color: 'white',
                 padding: '4px 10px',
                 borderRadius: '12px',
@@ -209,10 +225,10 @@ const ModemGradingChart = ({ data }) => {
                 {stat.current_service}
               </span>
             </div>
-            <div style={{ fontSize: '13px', color: '#666', lineHeight: '1.8' }}>
+            <div style={{ fontSize: '13px', color: textSecondary, lineHeight: '1.8' }}>
               <div><strong>Full Service:</strong> {stat.full_service}×</div>
               <div><strong>Limited Service:</strong> {stat.limited_service}×</div>
-              <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #eee' }}>
+              <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${borderColor}` }}>
                 <div><strong>Good Quality:</strong> {stat.good_quality}</div>
                 <div><strong>Bad Quality:</strong> {stat.bad_quality}</div>
               </div>
@@ -225,10 +241,10 @@ const ModemGradingChart = ({ data }) => {
       {selectedModem !== 'all' && (
         <div style={{
           padding: '12px 20px',
-          background: '#e3f2fd',
+          background: infoLight,
           borderRadius: '8px',
           marginBottom: '20px',
-          color: '#1976d2',
+          color: infoColor,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between'
@@ -237,7 +253,7 @@ const ModemGradingChart = ({ data }) => {
           <button
             onClick={() => setSelectedModem('all')}
             style={{
-              background: '#1976d2',
+              background: infoColor,
               color: 'white',
               border: 'none',
               padding: '6px 16px',
@@ -253,10 +269,10 @@ const ModemGradingChart = ({ data }) => {
 
       {/* Service Level Timeline */}
       <div style={{
-        background: 'white',
+        background: cardBackground,
         padding: '20px',
         borderRadius: '12px',
-        boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
+        boxShadow: `0 2px 10px ${shadowColor}`,
         marginBottom: '30px'
       }}>
         <div className="chart-header" style={{ marginTop: 0, marginBottom: '20px' }}>
@@ -268,8 +284,8 @@ const ModemGradingChart = ({ data }) => {
           <div style={{
             padding: '30px',
             textAlign: 'center',
-            color: '#64748b',
-            background: '#f8fafc',
+            color: textSecondary,
+            background: surfaceTertiary,
             borderRadius: '8px'
           }}>
             No service level transitions recorded
@@ -284,7 +300,7 @@ const ModemGradingChart = ({ data }) => {
           }}>
             {timelinePanels.map(panel => {
               const chartHeight = selectedModem === 'all' ? 200 : 280;
-              const statusColor = panel.currentService === 'Full' ? '#059669' : '#dc2626';
+              const statusColor = panel.currentService === 'Full' ? successColor : errorColor;
               const chartData = panel.data;
               const xInterval = Math.floor((chartData.length || 1) / (selectedModem === 'all' ? 6 : 10)) || 1;
 
@@ -292,10 +308,10 @@ const ModemGradingChart = ({ data }) => {
                 <div
                   key={panel.modemId}
                   style={{
-                    border: '1px solid #e2e8f0',
+                    border: `1px solid ${borderColor}`,
                     borderRadius: '10px',
                     padding: '16px',
-                    background: '#ffffff'
+                    background: cardBackground
                   }}
                 >
                   <div style={{
@@ -304,7 +320,7 @@ const ModemGradingChart = ({ data }) => {
                     justifyContent: 'space-between',
                     marginBottom: '12px'
                   }}>
-                    <div style={{ fontWeight: 600, color: '#1f2937' }}>
+                    <div style={{ fontWeight: 600, color: textPrimary }}>
                       Modem {panel.modemId}
                     </div>
                     <span style={{
@@ -322,17 +338,17 @@ const ModemGradingChart = ({ data }) => {
                     <div style={{
                       padding: '30px 10px',
                       textAlign: 'center',
-                      color: '#94a3b8'
+                      color: textTertiary
                     }}>
                       No service change events for this modem
                     </div>
                   ) : (
                     <ResponsiveContainer width="100%" height={chartHeight}>
                       <LineChart data={chartData} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={borderColor} />
                         <XAxis
                           dataKey="timestamp"
-                          tick={{ fontSize: 11 }}
+                          tick={{ fontSize: 11, fill: textSecondary }}
                           angle={-45}
                           textAnchor="end"
                           height={100}
@@ -342,7 +358,7 @@ const ModemGradingChart = ({ data }) => {
                           domain={[-0.2, 1.2]}
                           ticks={[0, 1]}
                           tickFormatter={(value) => value === 1 ? 'Full' : 'Limited'}
-                          tick={{ fontSize: 11, fontWeight: 600 }}
+                          tick={{ fontSize: 11, fontWeight: 600, fill: textSecondary }}
                         />
                         <Tooltip
                           content={({ active, payload }) => {
@@ -350,11 +366,12 @@ const ModemGradingChart = ({ data }) => {
                               const point = payload[0].payload;
                               return (
                                 <div style={{
-                                  background: 'white',
+                                  background: cardBackground,
                                   padding: '10px',
-                                  border: '1px solid #e2e8f0',
+                                  border: `1px solid ${borderColor}`,
                                   borderRadius: '8px',
-                                  boxShadow: '0 2px 6px rgba(15, 23, 42, 0.08)'
+                                  boxShadow: `0 2px 6px ${shadowColor}`,
+                                  color: textPrimary
                                 }}>
                                   <div><strong>Service:</strong> {point.service_level}</div>
                                   <div><strong>Time:</strong> {point.timestamp}</div>
@@ -367,10 +384,10 @@ const ModemGradingChart = ({ data }) => {
                         <Line
                           type="stepAfter"
                           dataKey="service_value"
-                          stroke="#2563eb"
+                          stroke={brandPrimary}
                           strokeWidth={2.5}
                           dot={renderServiceDot}
-                          activeDot={{ r: 6, stroke: '#2563eb', strokeWidth: 2 }}
+                          activeDot={{ r: 6, stroke: brandPrimary, strokeWidth: 2 }}
                           name="Service Level"
                         />
                       </LineChart>
@@ -386,10 +403,10 @@ const ModemGradingChart = ({ data }) => {
 
       {/* Quality Metrics Chart */}
       <div style={{
-        background: 'white',
+        background: cardBackground,
         padding: '20px',
         borderRadius: '12px',
-        boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
+        boxShadow: `0 2px 10px ${shadowColor}`,
         marginBottom: '30px'
       }}>
         <div className="chart-header" style={{ marginTop: 0, marginBottom: '20px' }}>
@@ -399,26 +416,28 @@ const ModemGradingChart = ({ data }) => {
         <div ref={qualityRef}>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={filteredQuality.slice(0, 50)}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <CartesianGrid strokeDasharray="3 3" stroke={borderColor} />
             <XAxis
               dataKey="timestamp"
-              tick={{ fontSize: 11 }}
+              tick={{ fontSize: 11, fill: textSecondary }}
               angle={-45}
               textAnchor="end"
               height={100}
               interval={Math.floor(filteredQuality.slice(0, 50).length / 8) || 1}
             />
-            <YAxis />
+            <YAxis tick={{ fill: textSecondary }} />
             <Tooltip
               content={({ active, payload }) => {
                 if (active && payload && payload.length) {
                   const data = payload[0].payload;
                   return (
                     <div style={{
-                      background: 'white',
+                      background: cardBackground,
                       padding: '10px',
-                      border: '1px solid #ddd',
-                      borderRadius: '8px'
+                      border: `1px solid ${borderColor}`,
+                      borderRadius: '8px',
+                      boxShadow: `0 2px 6px ${shadowColor}`,
+                      color: textPrimary
                     }}>
                       <div><strong>Modem:</strong> {data.modem_id}</div>
                       <div><strong>Metric 1:</strong> {data.metric1}</div>
@@ -434,15 +453,15 @@ const ModemGradingChart = ({ data }) => {
             <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
             <Bar dataKey="metric1" name="Metric 1">
               {filteredQuality.slice(0, 50).map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.is_good ? '#059669' : '#dc2626'} />
+                <Cell key={`cell-${index}`} fill={entry.is_good ? successColor : errorColor} />
               ))}
             </Bar>
-            <Bar dataKey="metric2" fill="#d97706" name="Metric 2" />
+            <Bar dataKey="metric2" fill={warningColor} name="Metric 2" />
           </BarChart>
         </ResponsiveContainer>
         </div>
         {filteredQuality.length > 50 && (
-          <div style={{ textAlign: 'center', marginTop: '10px', color: '#666', fontSize: '14px' }}>
+          <div style={{ textAlign: 'center', marginTop: '10px', color: textSecondary, fontSize: '14px' }}>
             Showing first 50 of {filteredQuality.length} quality measurements
           </div>
         )}
@@ -450,12 +469,12 @@ const ModemGradingChart = ({ data }) => {
 
       {/* Events Table */}
       <div style={{
-        background: 'white',
+        background: cardBackground,
         padding: '20px',
         borderRadius: '12px',
-        boxShadow: '0 2px 10px rgba(0,0,0,0.08)'
+        boxShadow: `0 2px 10px ${shadowColor}`
       }}>
-        <h3 style={{ marginTop: 0, marginBottom: '15px', color: '#333' }}>
+        <h3 style={{ marginTop: 0, marginBottom: '15px', color: textPrimary }}>
           Service Change Events
         </h3>
         <div style={{ overflowX: 'auto' }}>
@@ -465,7 +484,7 @@ const ModemGradingChart = ({ data }) => {
             fontSize: '14px'
           }}>
             <thead>
-              <tr style={{ background: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
+              <tr style={{ background: surfaceTertiary, borderBottom: `2px solid ${borderColor}` }}>
                 <th style={{ padding: '12px', textAlign: 'left' }}>Timestamp</th>
                 <th style={{ padding: '12px', textAlign: 'center' }}>Modem ID</th>
                 <th style={{ padding: '12px', textAlign: 'center' }}>Service Level</th>
@@ -481,8 +500,8 @@ const ModemGradingChart = ({ data }) => {
                   <tr
                     key={idx}
                     style={{
-                      borderBottom: '1px solid #f0f0f0',
-                      background: event.service_level === 'Limited' ? '#fff3cd' : 'white'
+                      borderBottom: `1px solid ${borderColor}`,
+                      background: event.service_level === 'Limited' ? warningBg : cardBackground
                     }}
                   >
                     <td style={{ padding: '10px' }}>{event.timestamp}</td>
@@ -491,7 +510,7 @@ const ModemGradingChart = ({ data }) => {
                     </td>
                     <td style={{ padding: '10px', textAlign: 'center' }}>
                       <span style={{
-                        background: event.service_level === 'Full' ? '#059669' : '#dc2626',
+                        background: event.service_level === 'Full' ? successColor : errorColor,
                         color: 'white',
                         padding: '4px 12px',
                         borderRadius: '12px',
@@ -501,7 +520,7 @@ const ModemGradingChart = ({ data }) => {
                         {event.service_level}
                       </span>
                     </td>
-                    <td style={{ padding: '10px', textAlign: 'center', color: '#666' }}>
+                    <td style={{ padding: '10px', textAlign: 'center', color: textSecondary }}>
                       Service Change
                     </td>
                   </tr>

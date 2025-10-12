@@ -2,9 +2,19 @@ import React, { useState } from 'react';
 
 function SessionsTable({ sessions }) {
   const [filter, setFilter] = useState('all');
+  const textSecondary = 'var(--text-secondary)';
+  const textPrimary = 'var(--text-primary)';
+  const borderColor = 'var(--border-color)';
+  const successColor = 'var(--success)';
+  const successLight = 'var(--success-light)';
+  const warningColor = 'var(--warning)';
+  const warningLight = 'var(--warning-bg)';
+  const errorColor = 'var(--error)';
+  const errorLight = 'var(--error-bg)';
+  const cardBackground = 'var(--bg-card)';
 
   if (!sessions || sessions.length === 0) {
-    return <div>No session data available</div>;
+    return <div style={{ margin: '20px 0', textAlign: 'center', color: textSecondary }}>No session data available</div>;
   }
 
   const filteredSessions = sessions.filter(session => {
@@ -33,7 +43,7 @@ function SessionsTable({ sessions }) {
       </div>
 
       <div style={{ marginTop: '30px', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '15px' }}>
-        <h3>Session Details</h3>
+        <h3 style={{ color: textPrimary }}>Session Details</h3>
         <div style={{ marginLeft: 'auto' }}>
           <select
             value={filter}
@@ -41,8 +51,10 @@ function SessionsTable({ sessions }) {
             style={{
               padding: '8px 15px',
               borderRadius: '6px',
-              border: '2px solid #e0e0e0',
+              border: `2px solid ${borderColor}`,
               fontSize: '0.9rem',
+              background: cardBackground,
+              color: textPrimary
             }}
           >
             <option value="all">All Sessions</option>
@@ -79,13 +91,13 @@ function SessionsTable({ sessions }) {
                         fontSize: '0.85rem',
                         fontWeight: '600',
                         background:
-                          session.type === 'complete' ? '#d3f9d8' :
-                          session.type === 'start_only' ? '#fff3bf' :
-                          '#ffe3e3',
+                          session.type === 'complete' ? successLight :
+                          session.type === 'start_only' ? warningLight :
+                          errorLight,
                         color:
-                          session.type === 'complete' ? '#2f9e44' :
-                          session.type === 'start_only' ? '#f08c00' :
-                          '#c92a2a',
+                          session.type === 'complete' ? successColor :
+                          session.type === 'start_only' ? warningColor :
+                          errorColor,
                       }}
                     >
                       {session.type === 'complete' ? 'Complete' :
@@ -105,7 +117,7 @@ function SessionsTable({ sessions }) {
       </div>
 
       {filteredSessions.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+        <div style={{ textAlign: 'center', padding: '40px', color: textSecondary }}>
           <p>No sessions match the selected filter.</p>
         </div>
       )}

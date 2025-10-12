@@ -15,9 +15,13 @@ function ModemStats({ modems }) {
   const bandwidthChartRef = useRef(null);
   const lossChartRef = useRef(null);
   const delayChartRef = useRef(null);
+  const borderColor = 'var(--border-color)';
+  const cardBackground = 'var(--bg-card)';
+  const textPrimary = 'var(--text-primary)';
+  const textSecondary = 'var(--text-secondary)';
 
   if (!modems || modems.length === 0) {
-    return <div>No modem data available</div>;
+    return <div style={{ margin: '20px 0', textAlign: 'center', color: textSecondary }}>No modem data available</div>;
   }
 
   // Prepare data for bandwidth chart
@@ -66,10 +70,17 @@ function ModemStats({ modems }) {
       <div ref={bandwidthChartRef} className="chart-container">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={bandwidthData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
-            <Tooltip />
+            <CartesianGrid strokeDasharray="3 3" stroke={borderColor} />
+            <XAxis dataKey="name" tick={{ fill: textSecondary }} />
+            <YAxis tick={{ fill: textSecondary }} />
+            <Tooltip
+              contentStyle={{
+                background: cardBackground,
+                border: `1px solid ${borderColor}`,
+                borderRadius: '8px',
+                color: textPrimary
+              }}
+            />
             <Legend />
             <Bar dataKey="Low" fill="#82ca9d" />
             <Bar dataKey="Average" fill="#667eea" />
@@ -85,10 +96,17 @@ function ModemStats({ modems }) {
       <div ref={lossChartRef} className="chart-container">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={lossData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
-            <Tooltip />
+            <CartesianGrid strokeDasharray="3 3" stroke={borderColor} />
+            <XAxis dataKey="name" tick={{ fill: textSecondary }} />
+            <YAxis tick={{ fill: textSecondary }} />
+            <Tooltip
+              contentStyle={{
+                background: cardBackground,
+                border: `1px solid ${borderColor}`,
+                borderRadius: '8px',
+                color: textPrimary
+              }}
+            />
             <Legend />
             <Bar dataKey="Average" fill="#667eea" />
           </BarChart>
@@ -102,10 +120,17 @@ function ModemStats({ modems }) {
      <div ref={delayChartRef} className="chart-container">
        <ResponsiveContainer width="100%" height="100%">
           <BarChart data={delayData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
-            <Tooltip />
+            <CartesianGrid strokeDasharray="3 3" stroke={borderColor} />
+            <XAxis dataKey="name" tick={{ fill: textSecondary }} />
+            <YAxis tick={{ fill: textSecondary }} />
+            <Tooltip
+              contentStyle={{
+                background: cardBackground,
+                border: `1px solid ${borderColor}`,
+                borderRadius: '8px',
+                color: textPrimary
+              }}
+            />
             <Legend />
             <Bar dataKey="Upstream Delay" fill="#82ca9d" />
             <Bar dataKey="Smooth RTT" fill="#667eea" />
@@ -115,7 +140,7 @@ function ModemStats({ modems }) {
         </ResponsiveContainer>
       </div>
 
-      <h3 style={{ marginTop: '30px', marginBottom: '15px' }}>Detailed Statistics</h3>
+      <h3 style={{ marginTop: '30px', marginBottom: '15px', color: textPrimary }}>Detailed Statistics</h3>
       <div className="table-container">
         <table>
           <thead>

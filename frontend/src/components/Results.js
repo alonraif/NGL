@@ -67,7 +67,7 @@ function Results({ results }) {
       return <ModemGradingChart data={currentResult.parsed_data} />;
     } else {
       return (
-        <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
           <p>No visualization available for this parse mode.</p>
           <p>Check the "Raw Output" tab to see the results.</p>
         </div>

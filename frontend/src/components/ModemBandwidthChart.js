@@ -17,9 +17,21 @@ function ModemBandwidthChart({ data }) {
   const aggregatedRef = useRef(null);
   const bandwidthRefs = useRef({});
   const rttRefs = useRef({});
+  const borderColor = 'var(--border-color)';
+  const cardBackground = 'var(--bg-card)';
+  const surfaceTertiary = 'var(--bg-tertiary)';
+  const textSecondary = 'var(--text-secondary)';
+  const textPrimary = 'var(--text-primary)';
+  const infoLight = 'var(--info-light)';
+  const infoColor = 'var(--info)';
+  const brandPrimary = 'var(--brand-primary)';
+  const successColor = 'var(--success)';
+  const warningColor = 'var(--warning)';
+  const errorColor = 'var(--error)';
+  const infoAccent = 'var(--info)';
 
   if (!data || !data.modems || Object.keys(data.modems).length === 0) {
-    return <div>No modem bandwidth data available</div>;
+    return <div style={{ margin: '20px 0', textAlign: 'center', color: textSecondary }}>No modem bandwidth data available</div>;
   }
 
   const modemIds = Object.keys(data.modems).sort((a, b) => parseInt(a) - parseInt(b));
@@ -35,27 +47,35 @@ function ModemBandwidthChart({ data }) {
       <div ref={aggregatedRef} className="chart-container" style={{ height: '400px', marginBottom: '40px' }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data.aggregated}>
-            <CartesianGrid strokeDasharray="3 3" />
+            <CartesianGrid strokeDasharray="3 3" stroke={borderColor} />
             <XAxis
               dataKey="datetime"
               angle={-45}
               textAnchor="end"
               height={100}
               interval={Math.floor(data.aggregated.length / 10) || 1}
-              tick={{ fontSize: 11 }}
+              tick={{ fontSize: 11, fill: textSecondary }}
             />
             <YAxis
-              label={{ value: 'Bandwidth (Kbps)', angle: -90, position: 'insideLeft' }}
+              label={{ value: 'Bandwidth (Kbps)', angle: -90, position: 'insideLeft', fill: textSecondary }}
               domain={[0, 'dataMax']}
+              tick={{ fill: textSecondary }}
             />
-            <Tooltip />
+            <Tooltip
+              contentStyle={{
+                background: cardBackground,
+                border: `1px solid ${borderColor}`,
+                borderRadius: '8px',
+                color: textPrimary
+              }}
+            />
             <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
             <Area
               type="monotone"
               dataKey="total_bw"
               name="Total Bandwidth"
-              stroke="#2563eb"
-              fill="#2563eb"
+              stroke={brandPrimary}
+              fill={brandPrimary}
               fillOpacity={0.3}
               strokeWidth={2}
             />
@@ -79,7 +99,7 @@ function ModemBandwidthChart({ data }) {
             <h4 style={{
               marginBottom: '20px',
               padding: '10px 15px',
-              background: '#2563eb',
+              background: brandPrimary,
               color: 'white',
               borderRadius: '8px',
               fontSize: '1.1rem'
@@ -102,17 +122,24 @@ function ModemBandwidthChart({ data }) {
                 <div ref={bandwidthRef} className="chart-container" style={{ height: '350px' }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={modemData}>
-                      <CartesianGrid strokeDasharray="3 3" />
+                      <CartesianGrid strokeDasharray="3 3" stroke={borderColor} />
                       <XAxis
                         dataKey="datetime"
                         angle={-45}
                         textAnchor="end"
                         height={80}
                         interval={Math.floor(modemData.length / 8) || 1}
-                        tick={{ fontSize: 10 }}
+                        tick={{ fontSize: 10, fill: textSecondary }}
                       />
-                      <YAxis label={{ value: 'Kbps', angle: -90, position: 'insideLeft' }} />
-                      <Tooltip />
+                      <YAxis label={{ value: 'Kbps', angle: -90, position: 'insideLeft', fill: textSecondary }} tick={{ fill: textSecondary }} />
+                      <Tooltip
+                        contentStyle={{
+                          background: cardBackground,
+                          border: `1px solid ${borderColor}`,
+                          borderRadius: '8px',
+                          color: textPrimary
+                        }}
+                      />
                       <Legend verticalAlign="top" align="right" wrapperStyle={{ fontSize: '0.85rem', paddingBottom: '8px' }} />
                       <Area
                         type="monotone"
@@ -127,7 +154,7 @@ function ModemBandwidthChart({ data }) {
                         type="monotone"
                         dataKey="upstream"
                         name="Upstream"
-                        stroke="#ff6b6b"
+                        stroke={errorColor}
                         strokeWidth={2}
                         dot={false}
                       />
@@ -145,23 +172,30 @@ function ModemBandwidthChart({ data }) {
                 <div ref={rttRef} className="chart-container" style={{ height: '350px' }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={modemData}>
-                      <CartesianGrid strokeDasharray="3 3" />
+                      <CartesianGrid strokeDasharray="3 3" stroke={borderColor} />
                       <XAxis
                         dataKey="datetime"
                         angle={-45}
                         textAnchor="end"
                         height={80}
                         interval={Math.floor(modemData.length / 8) || 1}
-                        tick={{ fontSize: 10 }}
+                        tick={{ fontSize: 10, fill: textSecondary }}
                       />
-                      <YAxis label={{ value: 'ms', angle: -90, position: 'insideLeft' }} />
-                      <Tooltip />
+                      <YAxis label={{ value: 'ms', angle: -90, position: 'insideLeft', fill: textSecondary }} tick={{ fill: textSecondary }} />
+                      <Tooltip
+                        contentStyle={{
+                          background: cardBackground,
+                          border: `1px solid ${borderColor}`,
+                          borderRadius: '8px',
+                          color: textPrimary
+                        }}
+                      />
                       <Legend verticalAlign="top" align="right" wrapperStyle={{ fontSize: '0.85rem', paddingBottom: '8px' }} />
                       <Line
                         type="monotone"
                         dataKey="shortest_rtt"
                         name="Shortest RTT"
-                        stroke="#059669"
+                        stroke={successColor}
                         strokeWidth={2}
                         dot={false}
                       />
@@ -169,7 +203,7 @@ function ModemBandwidthChart({ data }) {
                         type="monotone"
                         dataKey="smooth_rtt"
                         name="Smooth RTT"
-                        stroke="#d97706"
+                        stroke={warningColor}
                         strokeWidth={2}
                         dot={false}
                       />
@@ -177,7 +211,7 @@ function ModemBandwidthChart({ data }) {
                         type="monotone"
                         dataKey="min_rtt"
                         name="Min RTT"
-                        stroke="#0891b2"
+                        stroke={infoAccent}
                         strokeWidth={2}
                         dot={false}
                       />
@@ -193,7 +227,7 @@ function ModemBandwidthChart({ data }) {
               gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
               gap: '10px',
               padding: '15px',
-              background: '#f8f9fa',
+              background: surfaceTertiary,
               borderRadius: '8px'
             }}>
               {Object.entries({
@@ -203,8 +237,8 @@ function ModemBandwidthChart({ data }) {
                 'Samples': modemData.length
               }).map(([key, value]) => (
                 <div key={key} style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.8rem', color: '#666' }}>{key}</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#333' }}>
+                  <div style={{ fontSize: '0.8rem', color: textSecondary }}>{key}</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: textPrimary }}>
                     {typeof value === 'number' ? value.toFixed(1) : value}
                   </div>
                 </div>
@@ -217,8 +251,8 @@ function ModemBandwidthChart({ data }) {
       <div style={{
         marginTop: '30px',
         padding: '15px',
-        background: '#eff6ff',
-        borderLeft: '4px solid #2563eb',
+        background: infoLight,
+        borderLeft: `4px solid ${brandPrimary}`,
         borderRadius: '4px'
       }}>
         <strong>Tip:</strong> Check the "Raw Output" tab for detailed CSV data

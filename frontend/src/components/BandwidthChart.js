@@ -13,15 +13,19 @@ import CopyChartButton from './CopyChartButton';
 
 function BandwidthChart({ data, mode }) {
   const chartRef = useRef(null);
+  const borderColor = 'var(--border-color)';
+  const textSecondary = 'var(--text-secondary)';
+  const textPrimary = 'var(--text-primary)';
+  const cardBackground = 'var(--bg-card)';
 
   // Check if data is valid array
   if (!data || !Array.isArray(data) || data.length === 0) {
-    return <div>No bandwidth data available</div>;
+    return <div style={{ margin: '20px 0', textAlign: 'center', color: textSecondary }}>No bandwidth data available</div>;
   }
 
   // Check if first element exists
   if (!data[0]) {
-    return <div>No bandwidth data available</div>;
+    return <div style={{ margin: '20px 0', textAlign: 'center', color: textSecondary }}>No bandwidth data available</div>;
   }
 
   // Get all numeric columns (excluding timestamp/date columns)
@@ -97,20 +101,28 @@ function BandwidthChart({ data, mode }) {
       <div ref={chartRef} className="chart-container" style={{ height: '500px' }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
+            <CartesianGrid strokeDasharray="3 3" stroke={borderColor} />
             <XAxis
               dataKey={headers[0]}
               angle={-45}
               textAnchor="end"
               height={100}
               interval={Math.floor(data.length / 10) || 1}
-              tick={{ fontSize: 11 }}
+              tick={{ fontSize: 11, fill: textSecondary }}
             />
             <YAxis
-              label={{ value: 'Bandwidth (Kbps)', angle: -90, position: 'insideLeft' }}
+              label={{ value: 'Bandwidth (Kbps)', angle: -90, position: 'insideLeft', fill: textSecondary }}
               domain={[0, 'dataMax']}
+              tick={{ fill: textSecondary }}
             />
-            <Tooltip />
+            <Tooltip
+              contentStyle={{
+                background: cardBackground,
+                border: `1px solid ${borderColor}`,
+                borderRadius: '8px',
+                color: textPrimary
+              }}
+            />
             <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
             {numericColumns.map((col, idx) => (
               <Area
@@ -127,7 +139,7 @@ function BandwidthChart({ data, mode }) {
         </ResponsiveContainer>
       </div>
 
-      <h3 style={{ marginTop: '30px', marginBottom: '15px' }}>Data Table</h3>
+      <h3 style={{ marginTop: '30px', marginBottom: '15px', color: textPrimary }}>Data Table</h3>
       <div className="table-container">
         <table>
           <thead>

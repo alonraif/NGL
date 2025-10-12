@@ -282,9 +282,11 @@ const AnalysisHistory = () => {
                   style={{
                     flex: 1,
                     padding: '10px 12px',
-                    border: '1px solid #d1d5db',
+                    border: '1px solid var(--border-color)',
                     borderRadius: '6px',
-                    fontSize: '14px'
+                    fontSize: '14px',
+                    background: 'var(--bg-card)',
+                    color: 'var(--text-primary)'
                   }}
                 />
                 <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>
@@ -340,8 +342,8 @@ const AnalysisHistory = () => {
                           borderRadius: '4px',
                           fontSize: '12px',
                           fontWeight: '500',
-                          background: analysis.storage_type === 's3' ? '#dbeafe' : '#e5e7eb',
-                          color: analysis.storage_type === 's3' ? '#1e40af' : '#374151'
+                          background: analysis.storage_type === 's3' ? 'var(--info-bg)' : 'var(--bg-hover)',
+                          color: analysis.storage_type === 's3' ? 'var(--info)' : 'var(--text-primary)'
                         }}>
                           {analysis.storage_type === 's3' ? '☁️ S3' : '🗄️ Local'}
                         </span>

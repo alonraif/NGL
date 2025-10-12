@@ -12,10 +12,10 @@ const ParserProgress = ({ parserQueue, currentParser, completedCount, totalCount
   // Get status badge
   const StatusBadge = ({ status, size = 'normal' }) => {
     const badges = {
-      pending: { icon: '⏳', color: '#6b7280', label: 'Pending' },
-      running: { icon: '⚙️', color: '#2563eb', label: 'Running' },
-      completed: { icon: '✓', color: '#059669', label: 'Completed' },
-      failed: { icon: '✗', color: '#dc2626', label: 'Failed' }
+      pending: { icon: '⏳', color: 'var(--text-secondary)', label: 'Pending' },
+      running: { icon: '⚙️', color: 'var(--brand-primary)', label: 'Running' },
+      completed: { icon: '✓', color: 'var(--success)', label: 'Completed' },
+      failed: { icon: '✗', color: 'var(--error)', label: 'Failed' }
     };
 
     const badge = badges[status] || badges.pending;
@@ -44,7 +44,7 @@ const ParserProgress = ({ parserQueue, currentParser, completedCount, totalCount
 
   return (
     <div className="parser-progress-card">
-      <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#1f2937' }}>
+      <h3 style={{ marginTop: 0, marginBottom: '20px', color: 'var(--text-primary)' }}>
         Processing Parsers ({completedCount}/{totalCount})
       </h3>
 
@@ -61,11 +61,11 @@ const ParserProgress = ({ parserQueue, currentParser, completedCount, totalCount
         {currentParser && (
           <div className="current-parser-status">
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-              <span style={{ color: '#6b7280', fontSize: '14px' }}>Currently running:</span>
-              <strong style={{ color: '#1f2937', fontSize: '16px' }}>{currentParser.label}</strong>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Currently running:</span>
+              <strong style={{ color: 'var(--text-primary)', fontSize: '16px' }}>{currentParser.label}</strong>
               <span className="spinner-animated">⚙️</span>
             </div>
-            <span style={{ color: '#2563eb', fontSize: '13px' }}>Processing in progress…</span>
+            <span style={{ color: 'var(--brand-primary)', fontSize: '13px' }}>Processing in progress…</span>
           </div>
         )}
 

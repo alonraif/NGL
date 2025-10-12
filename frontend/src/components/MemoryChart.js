@@ -15,6 +15,18 @@ import CopyChartButton from './CopyChartButton';
 const MemoryChart = ({ data }) => {
   const [selectedComponent, setSelectedComponent] = useState('all');
   const chartRef = useRef(null);
+  const cardBackground = 'var(--bg-card)';
+  const surfaceTertiary = 'var(--bg-tertiary)';
+  const borderColor = 'var(--border-color)';
+  const textPrimary = 'var(--text-primary)';
+  const textSecondary = 'var(--text-secondary)';
+  const textTertiary = 'var(--text-tertiary)';
+  const shadowColor = 'var(--shadow-color)';
+  const infoColor = 'var(--info)';
+  const infoLight = 'var(--info-light)';
+  const warningColor = 'var(--warning)';
+  const warningBg = 'var(--warning-bg)';
+  const successColor = 'var(--success)';
 
   // Process data to organize by component
   const { chartData, components, stats } = useMemo(() => {
@@ -103,8 +115,8 @@ const MemoryChart = ({ data }) => {
       <div style={{
         padding: '40px',
         textAlign: 'center',
-        color: '#666',
-        background: '#f8f9fa',
+        color: textSecondary,
+        background: surfaceTertiary,
         borderRadius: '8px',
         margin: '20px 0'
       }}>
@@ -128,11 +140,11 @@ const MemoryChart = ({ data }) => {
             <div
               key={component}
               style={{
-                background: 'white',
+                background: cardBackground,
                 padding: '20px',
                 borderRadius: '12px',
-                border: '2px solid #e0e0e0',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+                border: `2px solid ${borderColor}`,
+                boxShadow: `0 2px 8px ${shadowColor}`,
                 cursor: 'pointer',
                 transition: 'all 0.2s',
                 opacity: selectedComponent === 'all' || selectedComponent === component ? 1 : 0.6,
@@ -157,7 +169,7 @@ const MemoryChart = ({ data }) => {
                 </h3>
                 {stat.warnings > 0 && (
                   <span style={{
-                    background: '#ff4444',
+                    background: warningColor,
                     color: 'white',
                     padding: '4px 8px',
                     borderRadius: '12px',
@@ -168,14 +180,14 @@ const MemoryChart = ({ data }) => {
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: '14px', color: '#666', lineHeight: '1.8' }}>
+              <div style={{ fontSize: '14px', color: textSecondary, lineHeight: '1.8' }}>
                 <div><strong>Avg:</strong> {stat.avg}%</div>
                 <div><strong>Max:</strong> {stat.max}%</div>
                 <div><strong>Min:</strong> {stat.min}%</div>
                 {stat.maxUsedMB > 0 && (
                   <div><strong>Peak:</strong> {stat.maxUsedMB} MB / {stat.totalMB} MB</div>
                 )}
-                <div style={{ marginTop: '5px', color: '#999', fontSize: '12px' }}>
+                <div style={{ marginTop: '5px', color: textTertiary, fontSize: '12px' }}>
                   {stat.count} data points
                 </div>
               </div>
@@ -188,10 +200,10 @@ const MemoryChart = ({ data }) => {
       {selectedComponent !== 'all' && (
         <div style={{
           padding: '12px 20px',
-          background: '#e3f2fd',
+          background: infoLight,
           borderRadius: '8px',
           marginBottom: '20px',
-          color: '#1976d2',
+          color: infoColor,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between'
@@ -200,7 +212,7 @@ const MemoryChart = ({ data }) => {
           <button
             onClick={() => setSelectedComponent('all')}
             style={{
-              background: '#1976d2',
+              background: infoColor,
               color: 'white',
               border: 'none',
               padding: '6px 16px',
@@ -216,10 +228,10 @@ const MemoryChart = ({ data }) => {
 
       {/* Memory Usage Chart */}
       <div style={{
-        background: 'white',
+        background: cardBackground,
         padding: '20px',
         borderRadius: '12px',
-        boxShadow: '0 2px 10px rgba(0,0,0,0.08)'
+        boxShadow: `0 2px 10px ${shadowColor}`
       }}>
         <div className="chart-header" style={{ marginTop: 0, marginBottom: '20px' }}>
           <h3>Memory Usage Over Time</h3>
@@ -228,25 +240,27 @@ const MemoryChart = ({ data }) => {
         <div ref={chartRef}>
         <ResponsiveContainer width="100%" height={400}>
           <LineChart data={filteredData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <CartesianGrid strokeDasharray="3 3" stroke={borderColor} />
             <XAxis
               dataKey="timestamp"
-              tick={{ fontSize: 11 }}
+              tick={{ fontSize: 11, fill: textSecondary }}
               angle={-45}
               textAnchor="end"
               height={100}
               interval={Math.floor(filteredData.length / 10) || 1}
             />
             <YAxis
-              label={{ value: 'Memory Usage (%)', angle: -90, position: 'insideLeft' }}
+              label={{ value: 'Memory Usage (%)', angle: -90, position: 'insideLeft', fill: textSecondary }}
               domain={[0, 100]}
+              tick={{ fill: textSecondary }}
             />
             <Tooltip
               contentStyle={{
-                background: 'rgba(255, 255, 255, 0.95)',
-                border: '1px solid #ddd',
+                background: cardBackground,
+                border: `1px solid ${borderColor}`,
                 borderRadius: '8px',
-                padding: '10px'
+                padding: '10px',
+                color: textPrimary
               }}
             />
             <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
@@ -255,7 +269,7 @@ const MemoryChart = ({ data }) => {
             <ReferenceLine
               y={80}
               label="Warning Threshold"
-              stroke="red"
+              stroke={warningColor}
               strokeDasharray="3 3"
             />
 
@@ -280,12 +294,12 @@ const MemoryChart = ({ data }) => {
       {/* Data Table */}
       <div style={{
         marginTop: '30px',
-        background: 'white',
+        background: cardBackground,
         padding: '20px',
         borderRadius: '12px',
-        boxShadow: '0 2px 10px rgba(0,0,0,0.08)'
+        boxShadow: `0 2px 10px ${shadowColor}`
       }}>
-        <h3 style={{ marginTop: 0, marginBottom: '15px', color: '#333' }}>
+        <h3 style={{ marginTop: 0, marginBottom: '15px', color: textPrimary }}>
           Memory Usage Details
         </h3>
         <div style={{ overflowX: 'auto' }}>
@@ -295,7 +309,7 @@ const MemoryChart = ({ data }) => {
             fontSize: '14px'
           }}>
             <thead>
-              <tr style={{ background: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
+              <tr style={{ background: surfaceTertiary, borderBottom: `2px solid ${borderColor}` }}>
                 <th style={{ padding: '12px', textAlign: 'left' }}>Timestamp</th>
                 <th style={{ padding: '12px', textAlign: 'left' }}>Component</th>
                 <th style={{ padding: '12px', textAlign: 'right' }}>Usage %</th>
@@ -313,8 +327,8 @@ const MemoryChart = ({ data }) => {
                 <tr
                   key={idx}
                   style={{
-                    borderBottom: '1px solid #f0f0f0',
-                    background: point.is_warning ? '#fff3cd' : 'white'
+                    borderBottom: `1px solid ${borderColor}`,
+                    background: point.is_warning ? warningBg : cardBackground
                   }}
                 >
                   <td style={{ padding: '10px' }}>{point.timestamp}</td>
@@ -341,7 +355,7 @@ const MemoryChart = ({ data }) => {
                   <td style={{ padding: '10px', textAlign: 'center' }}>
                     {point.is_warning ? (
                       <span style={{
-                        background: '#dc3545',
+                        background: warningColor,
                         color: 'white',
                         padding: '4px 8px',
                         borderRadius: '12px',
@@ -351,7 +365,7 @@ const MemoryChart = ({ data }) => {
                         WARNING
                       </span>
                     ) : (
-                      <span style={{ color: '#28a745', fontWeight: 'bold' }}>OK</span>
+                      <span style={{ color: successColor, fontWeight: 'bold' }}>OK</span>
                     )}
                   </td>
                 </tr>
@@ -362,7 +376,7 @@ const MemoryChart = ({ data }) => {
             <div style={{
               padding: '15px',
               textAlign: 'center',
-              color: '#666',
+              color: textSecondary,
               fontSize: '14px'
             }}>
               Showing first 100 of {data.length} data points

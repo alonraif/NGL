@@ -27,8 +27,14 @@ const CopyChartButton = ({
 
     try {
       setStatus('copying');
+      const backgroundVariable = typeof window !== 'undefined'
+        ? getComputedStyle(document.documentElement).getPropertyValue('--bg-card')
+        : null;
+      const backgroundColor = backgroundVariable && backgroundVariable.trim().length > 0
+        ? backgroundVariable.trim()
+        : '#ffffff';
       const blob = await toBlob(targetRef.current, {
-        backgroundColor: '#ffffff',
+        backgroundColor,
         pixelRatio: Math.max(window.devicePixelRatio || 1, 2)
       });
 

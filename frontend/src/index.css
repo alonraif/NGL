@@ -18,6 +18,10 @@
   --border-strong: #d1d5db;
   --shadow-color: rgba(0, 0, 0, 0.1);
   --shadow-strong: rgba(0, 0, 0, 0.15);
+  --brand-radial-strong: rgba(37, 99, 235, 0.08);
+  --brand-radial-light: rgba(37, 99, 235, 0.05);
+  --code-bg: #1e1e1e;
+  --code-text: #d4d4d4;
 
   /* Brand colors */
   --brand-primary: #2563eb;
@@ -54,6 +58,10 @@
   --border-strong: #475569;
   --shadow-color: rgba(0, 0, 0, 0.3);
   --shadow-strong: rgba(0, 0, 0, 0.5);
+  --brand-radial-strong: rgba(59, 130, 246, 0.22);
+  --brand-radial-light: rgba(59, 130, 246, 0.12);
+  --code-bg: #020617;
+  --code-text: #e2e8f0;
 
   /* Brand colors (adjusted for dark mode) */
   --brand-primary: #3b82f6;
