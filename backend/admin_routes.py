@@ -1703,6 +1703,15 @@ def get_audit_stats(current_user, db):
     # Total events
     total_events = base_query.count()
 
+    # Events today (last 24 hours)
+    today_start = now - timedelta(hours=24)
+    today_count = db.query(AuditLog).filter(AuditLog.timestamp >= today_start).count()
+
+    # Unique users in period
+    unique_users = base_query.with_entities(
+        func.count(distinct(AuditLog.user_id))
+    ).scalar() or 0
+
     # Failed login attempts
     failed_logins = base_query.filter(
         AuditLog.action == 'login',
@@ -1783,6 +1792,9 @@ def get_audit_stats(current_user, db):
     return jsonify({
         'period': period,
         'total_events': total_events,
+        'total_logs': total_events,  # Alias for frontend compatibility
+        'today_count': today_count,
+        'unique_users': unique_users,
         'failed_logins': failed_logins,
         'successful_logins': successful_logins,
         'failed_operations': failed_operations,
