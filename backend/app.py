@@ -146,6 +146,7 @@ PARSE_MODES = [
     {'value': 'id', 'label': 'Device IDs', 'description': 'Boss ID of device and server'},
     {'value': 'memory', 'label': 'Memory Usage', 'description': 'Memory consumption data'},
     {'value': 'grading', 'label': 'Modem Grading', 'description': 'Service level transitions'},
+    {'value': 'cpu', 'label': 'CPU Usage', 'description': 'CPU utilization by component'},
 ]
 
 def allowed_file(filename):

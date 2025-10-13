@@ -72,9 +72,21 @@ class CpuParser(BaseParser):
             self.ensure_not_cancelled()
             line = log_line.line
 
-            dt = _parse_timestamp(line, timezone)
-            if dt is None or not daterange.contains(dt):
+            # Check patterns FIRST before timestamp parsing (more efficient)
+            has_cpu_pattern = (CPU_DETAIL_PATTERN.search(line) or
+                              CPU_CORE_WARNING_PATTERN.search(line) or
+                              CPU_SERVER_PATTERN.search(line))
+
+            if not has_cpu_pattern:
                 continue
+
+            dt = _parse_timestamp(line, timezone)
+            if dt is None:
+                continue
+
+            if not daterange.contains(dt):
+                continue
+
             timestamp = dt.strftime("%Y-%m-%d %H:%M:%S")
 
             if match := CPU_DETAIL_PATTERN.search(line):
@@ -106,21 +118,31 @@ class CpuParser(BaseParser):
 
 
 def _parse_timestamp(line: str, tz_name: str):
+    """Parse timestamp from log line.
+
+    The timestamp is in ISO 8601 format at the beginning of the line,
+    e.g., '2025-10-02T18:42:16.388503+00:00 corecard monitor...'
+    """
     parts = line.split()
-    if len(parts) < 2:
+    if len(parts) < 1:
         return None
-    ts_raw = f"{parts[0]} {parts[1].rstrip(':')}"
+
+    # The timestamp is complete in the first part (ISO 8601 format with T separator)
+    ts_raw = parts[0]
     try:
         parsed = dateutil_parser.parse(ts_raw)
     except Exception:
         return None
 
-    tz = pytz.timezone(tz_name)
-    if parsed.tzinfo is None:
-        parsed = tz.localize(parsed)
-    else:
-        parsed = parsed.astimezone(tz)
-    return parsed
+    try:
+        tz = pytz.timezone(tz_name)
+        if parsed.tzinfo is None:
+            parsed = tz.localize(parsed)
+        else:
+            parsed = parsed.astimezone(tz)
+        return parsed
+    except Exception:
+        return None
 
 
 __all__ = ["CpuParser"]
