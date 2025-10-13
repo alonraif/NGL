@@ -14,7 +14,11 @@ from .lula_wrapper import (
     ModemStatsParser,
     ErrorParser,
     SystemParser,
-    DeviceIDParser
+    DeviceIDParser,
+    DebugParser,
+    FFmpegParser,
+    FFmpegVerboseParser,
+    FFmpegAudioParser
 )
 
 # Parser registry
@@ -34,6 +38,10 @@ PARSERS = {
     'modemevents': ModemEventsParser,
     'modemeventssorted': ModemEventsSortedParser,
     'id': DeviceIDParser,
+    'debug': DebugParser,
+    'ffmpeg': FFmpegParser,
+    'ffmpegv': FFmpegVerboseParser,
+    'ffmpega': FFmpegAudioParser,
 }
 
 def get_parser(mode):
@@ -51,6 +59,10 @@ __all__ = [
     'ErrorParser',
     'SystemParser',
     'DeviceIDParser',
+    'DebugParser',
+    'FFmpegParser',
+    'FFmpegVerboseParser',
+    'FFmpegAudioParser',
     'get_parser',
     'PARSERS',
 ]

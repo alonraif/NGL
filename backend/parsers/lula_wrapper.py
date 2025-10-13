@@ -926,3 +926,51 @@ class DeviceIDParser(LulaWrapperParser):
             'device_id': device_id or 'Not found',
             'raw_lines': output.split('\n')[:10]
         }
+
+
+class DebugParser(LulaWrapperParser):
+    """Parser for debug-level logs"""
+
+    def parse_output(self, output):
+        """Parse debug output"""
+        lines = output.strip().split('\n')
+        return {
+            'total_lines': len(lines),
+            'lines': lines[:1000]  # Limit to first 1000 for performance
+        }
+
+
+class FFmpegParser(LulaWrapperParser):
+    """Parser for FFmpeg-related logs"""
+
+    def parse_output(self, output):
+        """Parse FFmpeg logs"""
+        lines = output.strip().split('\n')
+        return {
+            'total_lines': len(lines),
+            'lines': lines[:1000]  # Limit to first 1000 for performance
+        }
+
+
+class FFmpegVerboseParser(LulaWrapperParser):
+    """Parser for FFmpeg verbose logs"""
+
+    def parse_output(self, output):
+        """Parse FFmpeg verbose output"""
+        lines = output.strip().split('\n')
+        return {
+            'total_lines': len(lines),
+            'lines': lines[:1000]  # Limit to first 1000 for performance
+        }
+
+
+class FFmpegAudioParser(LulaWrapperParser):
+    """Parser for FFmpeg audio-related logs"""
+
+    def parse_output(self, output):
+        """Parse FFmpeg audio logs"""
+        lines = output.strip().split('\n')
+        return {
+            'total_lines': len(lines),
+            'lines': lines[:1000]  # Limit to first 1000 for performance
+        }

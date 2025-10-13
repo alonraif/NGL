@@ -147,6 +147,10 @@ PARSE_MODES = [
     {'value': 'memory', 'label': 'Memory Usage', 'description': 'Memory consumption data'},
     {'value': 'grading', 'label': 'Modem Grading', 'description': 'Service level transitions'},
     {'value': 'cpu', 'label': 'CPU Usage', 'description': 'CPU utilization by component'},
+    {'value': 'debug', 'label': 'Debug Logs', 'description': 'Debug-level logging output'},
+    {'value': 'ffmpeg', 'label': 'FFmpeg Logs', 'description': 'FFmpeg video encoding logs'},
+    {'value': 'ffmpegv', 'label': 'FFmpeg Verbose', 'description': 'FFmpeg verbose output'},
+    {'value': 'ffmpega', 'label': 'FFmpeg Audio', 'description': 'FFmpeg audio-related logs'},
 ]
 
 def allowed_file(filename):
