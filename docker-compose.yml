@@ -49,6 +49,8 @@ services:
       - nginx_ssl:/etc/nginx/ssl
       - ./test_config.json:/app/test_config.json:ro
       - ./test_logs:/app/test_logs:ro
+      - /var/run/docker.sock:/var/run/docker.sock  # Enable Docker logs feature
+      - ./docker-compose.yml:/docker-compose.yml:ro  # For docker-compose commands
     environment:
       - FLASK_ENV=${FLASK_ENV:-development}
       - FLASK_DEBUG=${FLASK_DEBUG:-1}

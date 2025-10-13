@@ -106,6 +106,16 @@ const AdminDashboard = () => {
     per_page: 50
   });
 
+  // Docker logs state
+  const [dockerLogs, setDockerLogs] = useState([]);
+  const [dockerService, setDockerService] = useState('all');
+  const [dockerTimeRange, setDockerTimeRange] = useState('1h');
+  const [dockerLoading, setDockerLoading] = useState(false);
+  const [dockerAutoRefresh, setDockerAutoRefresh] = useState(false);
+  const [dockerServices, setDockerServices] = useState([]);
+  const [dockerAvailable, setDockerAvailable] = useState(true);
+  const [dockerError, setDockerError] = useState(null);
+
   const fetchSslConfig = useCallback(async (showSpinner = true) => {
     try {
       if (showSpinner) {
@@ -247,6 +257,85 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Failed to export audit logs:', error);
       alert('Failed to export audit logs');
+    }
+  };
+
+  // Docker logs functions
+  const fetchDockerServices = useCallback(async () => {
+    try {
+      const response = await axios.get('/api/admin/docker-services');
+      if (response.data.docker_available) {
+        setDockerServices(response.data.services || []);
+        setDockerAvailable(true);
+        setDockerError(null);
+      } else {
+        setDockerAvailable(false);
+        setDockerError(response.data.error || 'Docker is not available');
+      }
+    } catch (error) {
+      console.error('Failed to fetch Docker services:', error);
+      setDockerAvailable(false);
+      setDockerError(error.response?.data?.error || 'Failed to connect to Docker');
+    }
+  }, []);
+
+  const fetchDockerLogs = useCallback(async () => {
+    try {
+      setDockerLoading(true);
+      setDockerError(null);
+
+      const params = {
+        service: dockerService,
+        since: dockerTimeRange,
+        tail: 1000
+      };
+
+      const response = await axios.get('/api/admin/docker-logs', { params });
+
+      if (response.data.docker_available) {
+        setDockerLogs(response.data.logs || []);
+        setDockerAvailable(true);
+      } else {
+        setDockerAvailable(false);
+        setDockerError(response.data.error || 'Docker is not available');
+        setDockerLogs([]);
+      }
+    } catch (error) {
+      console.error('Failed to fetch Docker logs:', error);
+      setDockerError(error.response?.data?.error || 'Failed to fetch Docker logs');
+      setDockerLogs([]);
+      if (error.response?.status === 503) {
+        setDockerAvailable(false);
+      }
+    } finally {
+      setDockerLoading(false);
+    }
+  }, [dockerService, dockerTimeRange]);
+
+  const downloadDockerLogs = () => {
+    try {
+      if (dockerLogs.length === 0) {
+        alert('No logs to download');
+        return;
+      }
+
+      // Convert logs to text format
+      const logsText = dockerLogs.map(log => {
+        return `[${log.timestamp}] [${log.service}] ${log.message}`;
+      }).join('\n');
+
+      // Create download link
+      const blob = new Blob([logsText], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `docker_logs_${dockerService}_${dockerTimeRange}_${new Date().toISOString()}.txt`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      console.error('Failed to download Docker logs:', error);
+      alert('Failed to download logs');
     }
   };
 
@@ -562,6 +651,34 @@ const AdminDashboard = () => {
       fetchAuditLogs();
     }
   }, [auditPage, auditFilters, activeTab, fetchAuditLogs]);
+
+  // Fetch Docker services when audit tab is opened
+  useEffect(() => {
+    if (activeTab === 'audit') {
+      fetchDockerServices();
+      fetchDockerLogs();
+    }
+  }, [activeTab, fetchDockerServices, fetchDockerLogs]);
+
+  // Fetch Docker logs when service or time range changes
+  useEffect(() => {
+    if (activeTab === 'audit' && dockerAvailable) {
+      fetchDockerLogs();
+    }
+  }, [dockerService, dockerTimeRange, activeTab, dockerAvailable, fetchDockerLogs]);
+
+  // Auto-refresh Docker logs
+  useEffect(() => {
+    if (!dockerAutoRefresh || activeTab !== 'audit' || !dockerAvailable) {
+      return undefined;
+    }
+
+    const intervalId = setInterval(() => {
+      fetchDockerLogs();
+    }, 10000); // Refresh every 10 seconds
+
+    return () => clearInterval(intervalId);
+  }, [dockerAutoRefresh, activeTab, dockerAvailable, fetchDockerLogs]);
 
   const sslStatus = sslConfig?.certificate_status;
 
@@ -2097,6 +2214,231 @@ const AdminDashboard = () => {
                   </table>
                 </div>
               )}
+
+              {/* Docker Logs Section */}
+              <div className="card" style={{ marginTop: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600' }}>Docker Container Logs</h3>
+                    <p style={{ margin: '4px 0 0 0', color: theme.textSecondary, fontSize: '14px' }}>
+                      View real-time logs from Docker services for troubleshooting and monitoring
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => fetchDockerLogs()}
+                      disabled={dockerLoading || !dockerAvailable}
+                      style={{ fontSize: '14px' }}
+                    >
+                      {dockerLoading ? 'Loading...' : 'Refresh'}
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={downloadDockerLogs}
+                      disabled={dockerLogs.length === 0}
+                      style={{ fontSize: '14px' }}
+                    >
+                      Download Logs
+                    </button>
+                  </div>
+                </div>
+
+                {!dockerAvailable ? (
+                  <div style={{
+                    padding: '40px',
+                    textAlign: 'center',
+                    background: theme.errorBg,
+                    borderRadius: '8px',
+                    border: `1px solid ${theme.error}`
+                  }}>
+                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
+                    <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: theme.error }}>
+                      Docker Not Available
+                    </div>
+                    <div style={{ fontSize: '14px', color: theme.textSecondary }}>
+                      {dockerError || 'Docker is not accessible from this system'}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Controls */}
+                    <div style={{
+                      display: 'flex',
+                      gap: '16px',
+                      marginBottom: '16px',
+                      flexWrap: 'wrap',
+                      alignItems: 'center'
+                    }}>
+                      {/* Service Selector */}
+                      <div className="form-group" style={{ flex: '1 1 200px', minWidth: '200px' }}>
+                        <label style={{ fontSize: '13px', fontWeight: '500', marginBottom: '6px', display: 'block' }}>
+                          Service
+                        </label>
+                        <select
+                          value={dockerService}
+                          onChange={(e) => setDockerService(e.target.value)}
+                          disabled={dockerLoading}
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            border: `1px solid ${theme.border}`,
+                            background: theme.bgCard,
+                            color: theme.textPrimary,
+                            fontSize: '14px'
+                          }}
+                        >
+                          <option value="all">All Services</option>
+                          <option value="backend">Backend</option>
+                          <option value="frontend">Frontend (Nginx)</option>
+                          <option value="postgres">PostgreSQL</option>
+                          <option value="redis">Redis</option>
+                          <option value="celery_worker">Celery Worker</option>
+                          <option value="celery_beat">Celery Beat</option>
+                          <option value="certbot">Certbot</option>
+                        </select>
+                      </div>
+
+                      {/* Time Range Selector */}
+                      <div className="form-group" style={{ flex: '0 0 auto' }}>
+                        <label style={{ fontSize: '13px', fontWeight: '500', marginBottom: '6px', display: 'block' }}>
+                          Time Range
+                        </label>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          {['1h', '2h', '24h'].map(range => (
+                            <button
+                              key={range}
+                              onClick={() => setDockerTimeRange(range)}
+                              disabled={dockerLoading}
+                              style={{
+                                padding: '8px 16px',
+                                borderRadius: '6px',
+                                border: `1px solid ${dockerTimeRange === range ? theme.brandPrimary : theme.border}`,
+                                background: dockerTimeRange === range ? theme.brandPrimary : theme.bgCard,
+                                color: dockerTimeRange === range ? 'white' : theme.textPrimary,
+                                fontSize: '14px',
+                                fontWeight: dockerTimeRange === range ? '600' : '400',
+                                cursor: dockerLoading ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              {range}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Auto-refresh Toggle */}
+                      <div className="form-group" style={{ flex: '0 0 auto' }}>
+                        <label style={{ fontSize: '13px', fontWeight: '500', marginBottom: '6px', display: 'block' }}>
+                          Auto-refresh
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px' }}>
+                          <input
+                            type="checkbox"
+                            checked={dockerAutoRefresh}
+                            onChange={(e) => setDockerAutoRefresh(e.target.checked)}
+                            disabled={dockerLoading}
+                            style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                          />
+                          <span style={{ fontSize: '14px', color: theme.textSecondary }}>
+                            Every 10s
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Error Message */}
+                    {dockerError && (
+                      <div style={{
+                        padding: '12px',
+                        background: theme.errorBg,
+                        border: `1px solid ${theme.error}`,
+                        borderRadius: '6px',
+                        marginBottom: '16px',
+                        fontSize: '14px',
+                        color: theme.error
+                      }}>
+                        {dockerError}
+                      </div>
+                    )}
+
+                    {/* Logs Display */}
+                    {dockerLoading && dockerLogs.length === 0 ? (
+                      <div style={{ padding: '40px', textAlign: 'center', color: theme.textSecondary }}>
+                        Loading Docker logs...
+                      </div>
+                    ) : dockerLogs.length === 0 ? (
+                      <div style={{ padding: '40px', textAlign: 'center', color: theme.textSecondary }}>
+                        No logs found for the selected service and time range
+                      </div>
+                    ) : (
+                      <div style={{
+                        background: theme.codeBg,
+                        borderRadius: '6px',
+                        padding: '16px',
+                        maxHeight: '600px',
+                        overflowY: 'auto',
+                        fontFamily: 'monospace',
+                        fontSize: '13px',
+                        lineHeight: '1.6'
+                      }}>
+                        {dockerLogs.map((log, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              marginBottom: '4px',
+                              paddingBottom: '4px',
+                              borderBottom: idx < dockerLogs.length - 1 ? `1px solid ${theme.border}20` : 'none'
+                            }}
+                          >
+                            <span style={{ color: theme.textTertiary, marginRight: '12px' }}>
+                              {new Date(log.timestamp).toLocaleTimeString()}
+                            </span>
+                            <span style={{
+                              color: log.service === 'backend' ? '#4A9EFF' :
+                                     log.service === 'frontend' ? '#48BB78' :
+                                     log.service === 'postgres' ? '#9F7AEA' :
+                                     log.service === 'redis' ? '#F56565' :
+                                     log.service === 'celery_worker' ? '#ED8936' :
+                                     log.service === 'celery_beat' ? '#38B2AC' :
+                                     theme.brandPrimary,
+                              fontWeight: '600',
+                              marginRight: '12px',
+                              display: 'inline-block',
+                              minWidth: '120px'
+                            }}>
+                              [{log.service}]
+                            </span>
+                            <span style={{ color: theme.codeText }}>
+                              {log.message}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Log Count */}
+                    {dockerLogs.length > 0 && (
+                      <div style={{
+                        marginTop: '12px',
+                        fontSize: '13px',
+                        color: theme.textSecondary,
+                        textAlign: 'right'
+                      }}>
+                        Showing {dockerLogs.length} log entries
+                        {dockerAutoRefresh && (
+                          <span style={{ marginLeft: '8px' }}>
+                            • Auto-refreshing every 10s
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
             </div>
           )}
         </div>

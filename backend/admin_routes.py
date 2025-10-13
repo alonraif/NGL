@@ -41,6 +41,15 @@ from ssl_service import (
     read_certificate_metadata_from_path,
 )
 from tasks import issue_ssl_certificate, renew_ssl_certificate, verify_ssl_health
+from docker_service import (
+    get_docker_logs,
+    get_available_services,
+    get_service_status,
+    validate_time_range,
+    is_docker_available,
+    DockerServiceError,
+    VALID_SERVICES
+)
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -1913,3 +1922,144 @@ def export_audit_logs(current_user, db):
         'Content-Type': 'text/csv',
         'Content-Disposition': f'attachment; filename=audit_logs_{datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.csv'
     }
+
+
+# ============================================================================
+# DOCKER LOGS ENDPOINTS
+# ============================================================================
+
+@admin_bp.route('/docker-logs', methods=['GET'])
+@admin_required
+def get_docker_service_logs(current_user, db):
+    """
+    Get Docker container logs for specified service(s)
+
+    Query parameters:
+    - service: Service name (backend, frontend, postgres, redis, celery_worker, celery_beat, certbot) or "all"
+    - since: Time range (1h, 2h, 24h, 30m, etc.) - default: 1h
+    - tail: Number of lines (default: 500, max: 2000)
+    """
+    try:
+        # Check if Docker is available
+        if not is_docker_available():
+            return jsonify({
+                'error': 'Docker is not available on this system',
+                'logs': [],
+                'service': 'none',
+                'since': '1h',
+                'total_lines': 0,
+                'docker_available': False
+            }), 503
+
+        # Get parameters
+        service = request.args.get('service', 'all').strip().lower()
+        since = request.args.get('since', '1h').strip()
+        tail = min(int(request.args.get('tail', 500)), 2000)
+
+        # Validate service
+        if service != 'all' and service not in VALID_SERVICES:
+            return jsonify({
+                'error': f'Invalid service: {service}',
+                'valid_services': VALID_SERVICES + ['all']
+            }), 400
+
+        # Validate time range
+        if not validate_time_range(since):
+            return jsonify({
+                'error': f'Invalid time range: {since}. Use format like 1h, 2h, 24h, 30m, etc.'
+            }), 400
+
+        # Get logs
+        logs, total_lines = get_docker_logs(service, since, tail)
+
+        # Log audit trail
+        log_audit(db, current_user.id, 'view_docker_logs', 'docker', None, {
+            'service': service,
+            'since': since,
+            'tail': tail,
+            'lines_returned': total_lines
+        })
+
+        return jsonify({
+            'logs': logs,
+            'service': service,
+            'since': since,
+            'total_lines': total_lines,
+            'tail': tail,
+            'docker_available': True
+        }), 200
+
+    except DockerServiceError as e:
+        return jsonify({
+            'error': str(e),
+            'logs': [],
+            'service': service if 'service' in locals() else 'unknown',
+            'since': since if 'since' in locals() else '1h',
+            'total_lines': 0,
+            'docker_available': True
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'error': f'Unexpected error: {str(e)}',
+            'logs': [],
+            'service': 'unknown',
+            'since': '1h',
+            'total_lines': 0
+        }), 500
+
+
+@admin_bp.route('/docker-services', methods=['GET'])
+@admin_required
+def list_docker_services(current_user, db):
+    """
+    Get list of available Docker services and their status
+
+    Returns:
+        List of service names and their current status
+    """
+    try:
+        if not is_docker_available():
+            return jsonify({
+                'docker_available': False,
+                'services': [],
+                'error': 'Docker is not available'
+            }), 503
+
+        # Get available services
+        services = get_available_services()
+
+        # Get service status
+        status = get_service_status()
+
+        # Combine data
+        service_list = []
+        for service_name in services:
+            service_info = {
+                'name': service_name,
+                'status': 'unknown',
+                'health': ''
+            }
+
+            if service_name in status:
+                service_info.update(status[service_name])
+
+            service_list.append(service_info)
+
+        return jsonify({
+            'docker_available': True,
+            'services': service_list,
+            'valid_services': VALID_SERVICES
+        }), 200
+
+    except DockerServiceError as e:
+        return jsonify({
+            'docker_available': True,
+            'services': [],
+            'error': str(e)
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'docker_available': False,
+            'services': [],
+            'error': f'Unexpected error: {str(e)}'
+        }), 500
