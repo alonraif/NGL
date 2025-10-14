@@ -139,6 +139,10 @@ class Analysis(Base):
     begin_date = Column(String(50))
     end_date = Column(String(50))
 
+    # Drill-down tracking
+    parent_analysis_id = Column(Integer, ForeignKey('analyses.id', ondelete='SET NULL'), index=True)
+    is_drill_down = Column(Boolean, default=False, nullable=False, index=True)
+
     # Status tracking
     status = Column(String(20), default='pending', nullable=False, index=True)  # pending, running, completed, failed
     started_at = Column(DateTime(timezone=True))
@@ -163,6 +167,9 @@ class Analysis(Base):
     log_file = relationship("LogFile", back_populates="analyses")
     parser = relationship("Parser", back_populates="analyses")
     results = relationship("AnalysisResult", back_populates="analysis", cascade="all, delete-orphan")
+
+    # Parent-child relationship for drill-down analyses
+    parent_analysis = relationship("Analysis", remote_side=[id], backref="child_analyses")
 
 
 class AnalysisResult(Base):

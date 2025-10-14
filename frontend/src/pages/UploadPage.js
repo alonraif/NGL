@@ -270,8 +270,13 @@ function UploadPage() {
         // Update parser status to completed
         updateParserStatus(jobId, i, 'completed', { time: processingTime });
 
-        // Add result
-        addParserResult(jobId, response.data);
+        // Add result with additional metadata
+        addParserResult(jobId, {
+          ...response.data,
+          session_name: sessionName,
+          zendesk_case: zendeskCase,
+          timezone: timezone
+        });
 
       } catch (err) {
         // Check if request was aborted
@@ -467,7 +472,7 @@ function UploadPage() {
               <label htmlFor="parse-modes">Parse Modes (Select Multiple)</label>
               <div className="parser-checkboxes">
                 {parseModes.map(mode => (
-                  <label key={mode.value} className="parser-checkbox">
+                  <label key={mode.value} className={`parser-checkbox${mode.recommended ? ' recommended' : ''}`}>
                     <input
                       type="checkbox"
                       checked={selectedModes.includes(mode.value)}

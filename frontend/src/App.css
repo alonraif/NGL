@@ -639,6 +639,36 @@ tbody tr:hover {
   background: var(--info-light);
 }
 
+.parser-checkbox.recommended {
+  border: 3px solid var(--brand-primary);
+  background: linear-gradient(135deg, var(--info-light) 0%, var(--bg-card) 100%);
+  font-size: 1.05em;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+}
+
+.parser-checkbox.recommended::after {
+  content: "⭐ RECOMMENDED FIRST";
+  position: absolute;
+  top: -12px;
+  right: 10px;
+  background: linear-gradient(135deg, var(--brand-gradient-start) 0%, var(--brand-gradient-end) 100%);
+  color: white;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.65em;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+}
+
+.parser-checkbox.recommended:hover {
+  border-color: var(--brand-primary);
+  background: linear-gradient(135deg, var(--info-bg) 0%, var(--info-light) 100%);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  transform: translateY(-1px);
+}
+
 .parser-checkbox input[type="checkbox"] {
   margin-top: 2px;
   width: 18px;

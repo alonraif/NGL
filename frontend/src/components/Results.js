@@ -68,7 +68,16 @@ function Results({ results }) {
     } else if (['bw', 'md-db-bw'].includes(currentResult.parse_mode) && currentResult.parsed_data) {
       return <BandwidthChart data={currentResult.parsed_data} mode={currentResult.parse_mode} />;
     } else if (currentResult.parse_mode === 'sessions' && currentResult.parsed_data) {
-      return <SessionsTable sessions={currentResult.parsed_data} />;
+      return <SessionsTable
+        sessions={currentResult.parsed_data}
+        analysisData={{
+          analysisId: currentResult.analysis_id,
+          logFileId: currentResult.log_file_id,
+          sessionName: currentResult.session_name,
+          zendeskCase: currentResult.zendesk_case,
+          timezone: currentResult.timezone
+        }}
+      />;
     } else if (currentResult.parse_mode === 'memory' && currentResult.parsed_data) {
       return <MemoryChart data={currentResult.parsed_data} />;
     } else if (currentResult.parse_mode === 'grading' && currentResult.parsed_data) {

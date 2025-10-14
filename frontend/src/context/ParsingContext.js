@@ -20,22 +20,24 @@ const loadFromStorage = () => {
       console.log('[ParsingContext] Parsed state:', parsed);
       return {
         parsingJobs: parsed.parsingJobs || {},
-        activeJobId: parsed.activeJobId || null
+        activeJobId: parsed.activeJobId || null,
+        drillDownResults: parsed.drillDownResults || {}
       };
     }
   } catch (error) {
     console.error('Failed to load parsing state from localStorage:', error);
   }
   console.log('[ParsingContext] No saved state found, returning empty');
-  return { parsingJobs: {}, activeJobId: null };
+  return { parsingJobs: {}, activeJobId: null, drillDownResults: {} };
 };
 
 // Save state to localStorage
-const saveToStorage = (parsingJobs, activeJobId) => {
+const saveToStorage = (parsingJobs, activeJobId, drillDownResults) => {
   try {
     const data = {
       parsingJobs,
-      activeJobId
+      activeJobId,
+      drillDownResults
     };
     console.log('[ParsingContext] Saving to localStorage:', data);
     localStorage.setItem('ngl_parsing_state', JSON.stringify(data));
@@ -48,11 +50,12 @@ export const ParsingProvider = ({ children }) => {
   const initialState = loadFromStorage();
   const [parsingJobs, setParsingJobs] = useState(initialState.parsingJobs);
   const [activeJobId, setActiveJobId] = useState(initialState.activeJobId);
+  const [drillDownResults, setDrillDownResults] = useState(initialState.drillDownResults);
 
   // Persist to localStorage whenever state changes
   useEffect(() => {
-    saveToStorage(parsingJobs, activeJobId);
-  }, [parsingJobs, activeJobId]);
+    saveToStorage(parsingJobs, activeJobId, drillDownResults);
+  }, [parsingJobs, activeJobId, drillDownResults]);
 
   // On mount, clean up old completed jobs (older than 5 minutes)
   useEffect(() => {
@@ -196,6 +199,30 @@ export const ParsingProvider = ({ children }) => {
     });
   }, []);
 
+  // Drill-down results management (defined before clearJob to avoid circular dependency)
+  const saveDrillDownResults = useCallback((jobId, sessionIndex, results) => {
+    setDrillDownResults(prev => ({
+      ...prev,
+      [`${jobId}_${sessionIndex}`]: results
+    }));
+  }, []);
+
+  const getDrillDownResults = useCallback((jobId, sessionIndex) => {
+    return drillDownResults[`${jobId}_${sessionIndex}`] || [];
+  }, [drillDownResults]);
+
+  const clearDrillDownResults = useCallback((jobId) => {
+    setDrillDownResults(prev => {
+      const newResults = { ...prev };
+      Object.keys(newResults).forEach(key => {
+        if (key.startsWith(`${jobId}_`)) {
+          delete newResults[key];
+        }
+      });
+      return newResults;
+    });
+  }, []);
+
   const clearJob = useCallback((jobId) => {
     setParsingJobs(prev => {
       const newJobs = { ...prev };
@@ -204,7 +231,10 @@ export const ParsingProvider = ({ children }) => {
     });
 
     setActiveJobId(current => current === jobId ? null : current);
-  }, []);
+
+    // Also clear drill-down results for this job
+    clearDrillDownResults(jobId);
+  }, [clearDrillDownResults]);
 
   const getActiveJob = useCallback(() => {
     return activeJobId ? parsingJobs[activeJobId] : null;
@@ -225,7 +255,10 @@ export const ParsingProvider = ({ children }) => {
     setCurrentAnalysisId,
     clearJob,
     getActiveJob,
-    isParsingActive
+    isParsingActive,
+    saveDrillDownResults,
+    getDrillDownResults,
+    clearDrillDownResults
   };
 
   return (

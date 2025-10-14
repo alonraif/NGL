@@ -134,6 +134,7 @@ def add_hsts_header(response):
     return response
 
 PARSE_MODES = [
+    {'value': 'sessions', 'label': '⭐ Sessions (Recommended First)', 'description': 'Analyze streaming sessions - Run this first, then drill down into specific sessions', 'recommended': True},
     {'value': 'known', 'label': 'Known Errors (Default)', 'description': 'Small set of known errors and events'},
     {'value': 'error', 'label': 'All Errors', 'description': 'Any line containing ERROR'},
     {'value': 'v', 'label': 'Verbose', 'description': 'Include more common errors'},
@@ -142,7 +143,6 @@ PARSE_MODES = [
     {'value': 'md-bw', 'label': 'Modem Bandwidth', 'description': 'Modem bandwidth in CSV format'},
     {'value': 'md-db-bw', 'label': 'Data Bridge Bandwidth', 'description': 'Data bridge modem bandwidth'},
     {'value': 'md', 'label': 'Modem Statistics', 'description': 'Detailed modem statistics'},
-    {'value': 'sessions', 'label': 'Sessions', 'description': 'Streaming session summaries'},
     {'value': 'id', 'label': 'Device IDs', 'description': 'Boss ID of device and server'},
     {'value': 'memory', 'label': 'Memory Usage', 'description': 'Memory consumption data'},
     {'value': 'grading', 'label': 'Modem Grading', 'description': 'Service level transitions'},
@@ -710,7 +710,9 @@ def get_analyses(current_user, db):
                 'created_at': a.created_at.isoformat(),
                 'completed_at': a.completed_at.isoformat() if a.completed_at else None,
                 'processing_time_seconds': a.processing_time_seconds,
-                'error_message': a.error_message
+                'error_message': a.error_message,
+                'is_drill_down': a.is_drill_down,
+                'parent_analysis_id': a.parent_analysis_id
             } for a in analyses]
         }), 200
 
@@ -754,7 +756,13 @@ def get_analysis(analysis_id, current_user, db):
                 'created_at': analysis.created_at.isoformat(),
                 'completed_at': analysis.completed_at.isoformat() if analysis.completed_at else None,
                 'processing_time_seconds': analysis.processing_time_seconds,
-                'error_message': analysis.error_message
+                'error_message': analysis.error_message,
+                'is_drill_down': analysis.is_drill_down,
+                'parent_analysis_id': analysis.parent_analysis_id,
+                'timezone': analysis.timezone,
+                'begin_date': analysis.begin_date,
+                'end_date': analysis.end_date,
+                'log_file_id': analysis.log_file_id
             },
             'result': {
                 'raw_output': result.raw_output if result else None,
@@ -765,6 +773,220 @@ def get_analysis(analysis_id, current_user, db):
     except Exception as e:
         app.logger.error(f'Failed to get analysis {analysis_id}: {str(e)}')
         return jsonify({'error': 'An error occurred while retrieving analysis.'}), 500
+
+
+@app.route('/api/analyses/from-session', methods=['POST'])
+@token_required
+def create_analysis_from_session(current_user, db):
+    """Create new analysis from existing session time range (drill-down)"""
+    start_time = time.time()
+
+    try:
+        data = request.get_json()
+
+        # Validate required fields
+        required_fields = ['parent_analysis_id', 'log_file_id', 'session_start', 'parse_modes']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+
+        parent_analysis_id = data['parent_analysis_id']
+        log_file_id = data['log_file_id']
+        session_start = data['session_start']
+        session_end = data.get('session_end')  # Optional for incomplete sessions
+        parse_modes = data['parse_modes']  # List of parse modes
+        timezone = data.get('timezone', 'UTC')
+        session_name = data.get('session_name', '')
+        zendesk_case = data.get('zendesk_case', '')
+
+        # Validate parse_modes is a list
+        if not isinstance(parse_modes, list) or len(parse_modes) == 0:
+            return jsonify({'error': 'parse_modes must be a non-empty list'}), 400
+
+        # Validate session_end is provided if needed
+        if not session_end:
+            return jsonify({'error': 'session_end is required for incomplete sessions'}), 400
+
+        # Get parent analysis (must belong to user unless admin)
+        parent_query = db.query(Analysis).filter(Analysis.id == parent_analysis_id)
+        if not current_user.is_admin():
+            parent_query = parent_query.filter(Analysis.user_id == current_user.id)
+
+        parent_analysis = parent_query.first()
+        if not parent_analysis:
+            return jsonify({'error': 'Parent analysis not found'}), 404
+
+        # Get log file (must belong to user unless admin)
+        log_file_query = db.query(LogFile).filter(LogFile.id == log_file_id)
+        if not current_user.is_admin():
+            log_file_query = log_file_query.filter(LogFile.user_id == current_user.id)
+
+        log_file = log_file_query.first()
+        if not log_file:
+            return jsonify({'error': 'Log file not found'}), 404
+
+        # Check if log file is deleted
+        if log_file.is_deleted:
+            return jsonify({'error': 'Log file has been deleted'}), 410
+
+        # Get file path for parsing
+        storage_service = StorageFactory.get_storage_service()
+        if log_file.storage_type == 's3':
+            # Download from S3 to temp file
+            temp_fd, filepath = tempfile.mkstemp(suffix='.tmp', dir=TEMP_FOLDER)
+            os.close(temp_fd)
+            try:
+                # Download file from S3 using boto3
+                if hasattr(storage_service, 's3_client'):
+                    storage_service.s3_client.download_file(
+                        storage_service.config.bucket_name,
+                        log_file.stored_filename,
+                        filepath
+                    )
+                    app.logger.info(f"Downloaded S3 file {log_file.stored_filename} to {filepath}")
+                else:
+                    raise Exception("S3 storage not properly configured")
+            except Exception as e:
+                app.logger.error(f"Failed to download file from S3: {str(e)}")
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                return jsonify({'error': 'Failed to retrieve log file from storage'}), 500
+        else:
+            # Local storage
+            filepath = log_file.file_path
+
+        # Validate file still exists
+        if not os.path.exists(filepath):
+            return jsonify({'error': 'Log file not found on disk'}), 404
+
+        # Process each parse mode and create separate analyses
+        results = []
+        failed_analyses = []
+
+        for parse_mode in parse_modes:
+            try:
+                # Create analysis record for this drill-down
+                parser_obj = db.query(Parser).filter(Parser.parser_key == parse_mode).first()
+                analysis = Analysis(
+                    user_id=current_user.id,
+                    log_file_id=log_file.id,
+                    parser_id=parser_obj.id if parser_obj else None,
+                    parse_mode=parse_mode,
+                    session_name=session_name if session_name else parent_analysis.session_name,
+                    zendesk_case=zendesk_case if zendesk_case else parent_analysis.zendesk_case,
+                    timezone=timezone,
+                    begin_date=session_start,
+                    end_date=session_end,
+                    status='running',
+                    started_at=datetime.utcnow(),
+                    retention_days=int(os.getenv('UPLOAD_RETENTION_DAYS', '30')),
+                    parent_analysis_id=parent_analysis_id,
+                    is_drill_down=True
+                )
+                analysis.expires_at = datetime.utcnow() + timedelta(days=analysis.retention_days)
+                db.add(analysis)
+                db.flush()
+
+                app.logger.info(f"Processing drill-down analysis {analysis.id} in {parse_mode} mode for user {current_user.username}")
+
+                # Get appropriate parser
+                parser = get_parser(parse_mode)
+
+                # Register parser for in-process cancellation
+                parser_key = f"{current_user.id}:{analysis.id}"
+                with parsers_lock:
+                    active_parsers[parser_key] = parser
+
+                try:
+                    # Process the file using parser
+                    result = parser.process(
+                        archive_path=filepath,
+                        timezone=timezone,
+                        begin_date=session_start,
+                        end_date=session_end
+                    )
+                finally:
+                    # Always remove parser from active list
+                    with parsers_lock:
+                        active_parsers.pop(parser_key, None)
+
+                processing_time = time.time() - start_time
+
+                # Update analysis status
+                analysis.status = 'completed'
+                analysis.completed_at = datetime.utcnow()
+                analysis.processing_time_seconds = int(processing_time)
+
+                # Save analysis results
+                analysis_result = AnalysisResult(
+                    analysis_id=analysis.id,
+                    raw_output=result['raw_output'],
+                    parsed_data=result['parsed_data']
+                )
+                db.add(analysis_result)
+
+                results.append({
+                    'analysis_id': analysis.id,
+                    'parse_mode': parse_mode,
+                    'status': 'completed',
+                    'parsed_data': result['parsed_data'],
+                    'processing_time': round(processing_time, 2)
+                })
+
+                app.logger.info(f"Drill-down analysis {analysis.id} completed successfully")
+
+            except CancellationException:
+                analysis.status = 'cancelled'
+                analysis.completed_at = datetime.utcnow()
+                analysis.error_message = 'Analysis cancelled by user'
+                failed_analyses.append({
+                    'parse_mode': parse_mode,
+                    'error': 'Analysis cancelled by user'
+                })
+                app.logger.info(f"Drill-down analysis {analysis.id} was cancelled")
+
+            except Exception as parse_error:
+                analysis.status = 'failed'
+                analysis.completed_at = datetime.utcnow()
+                analysis.error_message = str(parse_error)
+                failed_analyses.append({
+                    'parse_mode': parse_mode,
+                    'error': str(parse_error)
+                })
+                app.logger.error(f"Drill-down analysis {analysis.id} failed: {str(parse_error)}\n{traceback.format_exc()}")
+
+        # Commit all changes
+        db.commit()
+
+        # Clean up temp file if using S3
+        if log_file.storage_type == 's3' and os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+                app.logger.info(f"Cleaned up temporary file: {filepath}")
+            except Exception as e:
+                app.logger.warning(f"Failed to clean up temp file {filepath}: {str(e)}")
+
+        # Log audit
+        log_audit(db, current_user.id, 'session_drill_down', 'analysis', parent_analysis_id, {
+            'session_start': session_start,
+            'session_end': session_end,
+            'parse_modes': parse_modes,
+            'successful': len(results),
+            'failed': len(failed_analyses)
+        })
+
+        return jsonify({
+            'success': True,
+            'message': f'Created {len(results)} drill-down analyses',
+            'results': results,
+            'failed': failed_analyses,
+            'parent_analysis_id': parent_analysis_id
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        app.logger.error(f"Drill-down analysis error: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': 'An error occurred during drill-down analysis. Please try again.'}), 500
 
 
 @app.route('/api/analyses/<int:analysis_id>/download', methods=['GET'])
@@ -869,7 +1091,9 @@ def search_analyses(current_user, db):
                 'created_at': a.created_at.isoformat(),
                 'completed_at': a.completed_at.isoformat() if a.completed_at else None,
                 'processing_time_seconds': a.processing_time_seconds,
-                'error_message': a.error_message
+                'error_message': a.error_message,
+                'is_drill_down': a.is_drill_down,
+                'parent_analysis_id': a.parent_analysis_id
             } for a in analyses]
         }), 200
 
