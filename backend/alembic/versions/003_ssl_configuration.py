@@ -7,6 +7,7 @@ Create Date: 2025-10-07
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 # revision identifiers, used by Alembic.
@@ -17,6 +18,13 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    tables = inspector.get_table_names()
+
+    if "ssl_configurations" in tables:
+        return
+
     op.create_table(
         'ssl_configurations',
         sa.Column('id', sa.Integer(), nullable=False),
@@ -44,4 +52,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table('ssl_configurations')
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    tables = inspector.get_table_names()
+    if 'ssl_configurations' in tables:
+        op.drop_table('ssl_configurations')
