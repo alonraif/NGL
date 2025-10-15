@@ -59,3 +59,6 @@ class Config:
     SSL_AUTO_RENEW = os.getenv('SSL_AUTO_RENEW', 'true').lower() == 'true'
     SSL_ENCRYPTION_KEY = os.getenv('SSL_ENCRYPTION_KEY')
     SSL_ALLOW_OPTIONAL_HTTPS = os.getenv('SSL_ALLOW_OPTIONAL_HTTPS', 'true').lower() == 'true'
+
+    # Rate limiting
+    RATE_LIMIT_DEFAULT = os.getenv('RATE_LIMIT_DEFAULT', '240 per minute').strip()
