@@ -14,6 +14,8 @@ import redis
 import threading
 import requests
 import tempfile
+import multiprocessing
+from queue import Empty
 from parsers import get_parser
 from parsers.base import CancellationException
 from database import init_db, SessionLocal
@@ -55,6 +57,17 @@ redis_client = redis.from_url(Config.REDIS_URL, decode_responses=True)
 active_parsers = {}
 parsers_lock = threading.Lock()  # Thread-safe access to active_parsers
 
+
+class ProcessParserHandle:
+    """Wrapper that provides a cancel() API for multiprocessing processes."""
+
+    def __init__(self, process: multiprocessing.Process):
+        self.process = process
+
+    def cancel(self):
+        if self.process.is_alive():
+            self.process.terminate()
+            self.process.join(timeout=1)
 UPLOAD_FOLDER = '/app/uploads'
 TEMP_FOLDER = '/app/temp'
 
@@ -721,6 +734,280 @@ def get_analyses(current_user, db):
         return jsonify({'error': 'An error occurred while retrieving analyses.'}), 500
 
 
+def _parser_worker(result_queue, analysis_id, parse_mode, archive_path, timezone, begin_date, end_date):
+    """Run a parser in a separate process and push the outcome to the parent."""
+    job_start = time.time()
+    try:
+        parser = get_parser(parse_mode)
+        result = parser.process(
+            archive_path=archive_path,
+            timezone=timezone,
+            begin_date=begin_date,
+            end_date=end_date
+        )
+        result_queue.put({
+            'analysis_id': analysis_id,
+            'parse_mode': parse_mode,
+            'status': 'completed',
+            'result': result,
+            'duration': time.time() - job_start
+        })
+    except CancellationException:
+        result_queue.put({
+            'analysis_id': analysis_id,
+            'parse_mode': parse_mode,
+            'status': 'cancelled',
+            'error': 'Analysis cancelled by user',
+            'duration': time.time() - job_start
+        })
+    except Exception as exc:
+        result_queue.put({
+            'analysis_id': analysis_id,
+            'parse_mode': parse_mode,
+            'status': 'failed',
+            'error': str(exc),
+            'traceback': traceback.format_exc(),
+            'duration': time.time() - job_start
+        })
+
+def _process_drilldown_async(analysis_jobs, filepath, timezone, session_start, session_end, user_id, username, parent_analysis_id, session_name, zendesk_case, storage_type):
+    """Run drill-down analyses in background processes and update results asynchronously."""
+    ctx = multiprocessing.get_context('spawn')
+    result_queue = ctx.Queue()
+    job_map = {}
+    pending_ids = set()
+    outcomes_by_id = {}
+    db_session = SessionLocal()
+    successes = []
+    failures = []
+
+    try:
+        analysis_ids = [job['analysis_id'] for job in analysis_jobs]
+        if not analysis_ids:
+            app.logger.info('No drill-down analyses requested; nothing to process.')
+            return
+
+        analyses = db_session.query(Analysis).filter(Analysis.id.in_(analysis_ids)).all()
+        analysis_by_id = {analysis.id: analysis for analysis in analyses}
+        if not analysis_by_id:
+            app.logger.warning('Drill-down worker could not find analyses for IDs: %s', analysis_ids)
+            return
+
+        for job in analysis_jobs:
+            analysis = analysis_by_id.get(job['analysis_id'])
+            if not analysis:
+                continue
+
+            parse_mode = job['parse_mode']
+            job_archive_path = filepath
+            try:
+                unique_name = f"{analysis.id}_{os.path.basename(filepath)}"
+                job_archive_path = os.path.join(TEMP_FOLDER, unique_name)
+                if os.path.exists(job_archive_path):
+                    if os.path.islink(job_archive_path):
+                        os.unlink(job_archive_path)
+                    else:
+                        os.remove(job_archive_path)
+                os.symlink(filepath, job_archive_path)
+            except Exception:
+                job_archive_path = filepath
+
+            process = ctx.Process(
+                target=_parser_worker,
+                args=(
+                    result_queue,
+                    analysis.id,
+                    parse_mode,
+                    job_archive_path,
+                    timezone,
+                    session_start,
+                    session_end
+                )
+            )
+            process.start()
+
+            parser_key = f"{user_id}:{analysis.id}"
+            with parsers_lock:
+                active_parsers[parser_key] = ProcessParserHandle(process)
+
+            job_map[analysis.id] = {
+                'analysis': analysis,
+                'parse_mode': parse_mode,
+                'process': process,
+                'parser_key': parser_key,
+                'archive_path': job_archive_path
+            }
+            pending_ids.add(analysis.id)
+
+            app.logger.info(
+                f"Processing drill-down analysis {analysis.id} (PID {process.pid}) in {parse_mode} mode for user {username}"
+            )
+
+        while pending_ids:
+            try:
+                outcome = result_queue.get(timeout=0.5)
+                if outcome:
+                    analysis_id = outcome.get('analysis_id')
+                    if analysis_id in pending_ids:
+                        outcomes_by_id[analysis_id] = outcome
+                        pending_ids.remove(analysis_id)
+            except Empty:
+                pass
+            except Exception as queue_error:
+                app.logger.warning(f'Drill-down worker queue error: {queue_error}')
+
+            for analysis_id in list(pending_ids):
+                process = job_map[analysis_id]['process']
+                if process.is_alive():
+                    continue
+
+                exit_code = process.exitcode
+                if exit_code in (-signal.SIGTERM, -signal.SIGKILL):
+                    status = 'cancelled'
+                    error_message = 'Analysis cancelled by user'
+                elif exit_code == 0:
+                    status = 'failed'
+                    error_message = 'Parser process exited without returning a result'
+                else:
+                    status = 'failed'
+                    error_message = f'Parser process exited with code {exit_code}'
+
+                outcomes_by_id[analysis_id] = {
+                    'analysis_id': analysis_id,
+                    'parse_mode': job_map[analysis_id]['parse_mode'],
+                    'status': status,
+                    'error': error_message,
+                    'duration': 0
+                }
+                pending_ids.remove(analysis_id)
+
+            if pending_ids:
+                time.sleep(0.05)
+
+        for analysis_id, job_info in job_map.items():
+            process = job_info['process']
+            try:
+                process.join()
+            except Exception:
+                pass
+            try:
+                process.close()
+            except Exception:
+                pass
+
+            with parsers_lock:
+                active_parsers.pop(job_info['parser_key'], None)
+
+            outcome = outcomes_by_id.get(analysis_id, {
+                'analysis_id': analysis_id,
+                'parse_mode': job_info['parse_mode'],
+                'status': 'failed',
+                'error': 'Unknown error',
+                'duration': 0
+            })
+
+            analysis = job_info['analysis']
+            duration = outcome.get('duration', 0)
+            analysis.completed_at = datetime.utcnow()
+            analysis.processing_time_seconds = int(duration)
+            status = outcome.get('status')
+
+            try:
+                if status == 'completed':
+                    result = outcome['result']
+                    analysis.status = 'completed'
+                    analysis.error_message = None
+
+                    analysis_result = AnalysisResult(
+                        analysis_id=analysis.id,
+                        raw_output=result['raw_output'],
+                        parsed_data=result['parsed_data']
+                    )
+                    db_session.add(analysis_result)
+
+                    successes.append({
+                        'parse_mode': job_info['parse_mode'],
+                        'analysis_id': analysis.id,
+                        'processing_time': round(duration, 2)
+                    })
+
+                    app.logger.info(f"Drill-down analysis {analysis.id} completed successfully")
+                elif status == 'cancelled':
+                    analysis.status = 'cancelled'
+                    error_message = outcome.get('error', 'Analysis cancelled by user')
+                    analysis.error_message = error_message
+                    failures.append({
+                        'parse_mode': job_info['parse_mode'],
+                        'error': error_message,
+                        'status': 'cancelled'
+                    })
+                    app.logger.info(f"Drill-down analysis {analysis.id} was cancelled")
+                else:
+                    analysis.status = 'failed'
+                    error_message = outcome.get('error', 'Unknown error')
+                    analysis.error_message = error_message
+                    failures.append({
+                        'parse_mode': job_info['parse_mode'],
+                        'error': error_message,
+                        'status': 'failed'
+                    })
+                    trace = outcome.get('traceback')
+                    if trace:
+                        app.logger.error(f"Drill-down analysis {analysis.id} failed: {error_message}\n{trace}")
+                    else:
+                        app.logger.error(f"Drill-down analysis {analysis.id} failed: {error_message}")
+
+                db_session.commit()
+            except Exception as commit_error:
+                db_session.rollback()
+                app.logger.error(
+                    f"Failed to finalize drill-down analysis {analysis_id}: {commit_error}\n{traceback.format_exc()}"
+                )
+
+        try:
+            log_audit(db_session, user_id, 'session_drill_down', 'analysis', parent_analysis_id, {
+                'session_start': session_start,
+                'session_end': session_end,
+                'parse_modes': [job['parse_mode'] for job in analysis_jobs],
+                'successful': len(successes),
+                'failed': len(failures),
+                'session_name': session_name,
+                'zendesk_case': zendesk_case
+            })
+            db_session.commit()
+        except Exception as audit_error:
+            db_session.rollback()
+            app.logger.error(f"Failed to log drill-down audit record: {audit_error}")
+
+    except Exception as exc:
+        db_session.rollback()
+        app.logger.error(f"Drill-down background worker error: {exc}\n{traceback.format_exc()}")
+    finally:
+        try:
+            result_queue.close()
+            result_queue.join_thread()
+        except Exception:
+            pass
+
+        for job_info in job_map.values():
+            archive_path = job_info.get('archive_path')
+            if archive_path and archive_path != filepath:
+                try:
+                    if os.path.islink(archive_path):
+                        os.unlink(archive_path)
+                    elif archive_path.startswith(TEMP_FOLDER) and os.path.exists(archive_path):
+                        os.remove(archive_path)
+                except Exception:
+                    pass
+
+        if storage_type == 's3' and os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+                app.logger.info(f"Cleaned up temporary file: {filepath}")
+            except Exception as cleanup_error:
+                app.logger.warning(f"Failed to clean up temp file {filepath}: {cleanup_error}")
+
+        db_session.close()
 @app.route('/api/analyses/<int:analysis_id>', methods=['GET'])
 @token_required
 def get_analysis(analysis_id, current_user, db):
@@ -775,217 +1062,185 @@ def get_analysis(analysis_id, current_user, db):
         return jsonify({'error': 'An error occurred while retrieving analysis.'}), 500
 
 
+def _parser_worker(result_queue, analysis_id, parse_mode, archive_path, timezone, begin_date, end_date):
+    """Run a parser in a separate process and push the outcome to the parent."""
+    job_start = time.time()
+    try:
+        parser = get_parser(parse_mode)
+        result = parser.process(
+            archive_path=archive_path,
+            timezone=timezone,
+            begin_date=begin_date,
+            end_date=end_date
+        )
+        result_queue.put({
+            'analysis_id': analysis_id,
+            'parse_mode': parse_mode,
+            'status': 'completed',
+            'result': result,
+            'duration': time.time() - job_start
+        })
+    except CancellationException:
+        result_queue.put({
+            'analysis_id': analysis_id,
+            'parse_mode': parse_mode,
+            'status': 'cancelled',
+            'error': 'Analysis cancelled by user',
+            'duration': time.time() - job_start
+        })
+    except Exception as exc:
+        result_queue.put({
+            'analysis_id': analysis_id,
+            'parse_mode': parse_mode,
+            'status': 'failed',
+            'error': str(exc),
+            'traceback': traceback.format_exc(),
+            'duration': time.time() - job_start
+        })
+
+
 @app.route('/api/analyses/from-session', methods=['POST'])
 @token_required
 def create_analysis_from_session(current_user, db):
-    """Create new analysis from existing session time range (drill-down)"""
-    start_time = time.time()
-
+    """Create new analysis from existing session time range (drill-down)."""
     try:
         data = request.get_json()
 
-        # Validate required fields
         required_fields = ['parent_analysis_id', 'log_file_id', 'session_start', 'parse_modes']
         for field in required_fields:
             if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
+                return jsonify({'error': f'Missing required field: {field}'})
 
         parent_analysis_id = data['parent_analysis_id']
         log_file_id = data['log_file_id']
         session_start = data['session_start']
-        session_end = data.get('session_end')  # Optional for incomplete sessions
-        parse_modes = data['parse_modes']  # List of parse modes
+        session_end = data.get('session_end')
+        parse_modes = data['parse_modes']
         timezone = data.get('timezone', 'UTC')
         session_name = data.get('session_name', '')
         zendesk_case = data.get('zendesk_case', '')
 
-        # Validate parse_modes is a list
-        if not isinstance(parse_modes, list) or len(parse_modes) == 0:
+        if not isinstance(parse_modes, list) or not parse_modes:
             return jsonify({'error': 'parse_modes must be a non-empty list'}), 400
 
-        # Validate session_end is provided if needed
         if not session_end:
             return jsonify({'error': 'session_end is required for incomplete sessions'}), 400
 
-        # Get parent analysis (must belong to user unless admin)
+        app.logger.info(
+            "Drill-down request parent_analysis_id=%s log_file_id=%s modes=%s",
+            parent_analysis_id,
+            log_file_id,
+            parse_modes,
+        )
+
         parent_query = db.query(Analysis).filter(Analysis.id == parent_analysis_id)
         if not current_user.is_admin():
             parent_query = parent_query.filter(Analysis.user_id == current_user.id)
-
         parent_analysis = parent_query.first()
         if not parent_analysis:
             return jsonify({'error': 'Parent analysis not found'}), 404
 
-        # Get log file (must belong to user unless admin)
         log_file_query = db.query(LogFile).filter(LogFile.id == log_file_id)
         if not current_user.is_admin():
             log_file_query = log_file_query.filter(LogFile.user_id == current_user.id)
-
         log_file = log_file_query.first()
         if not log_file:
             return jsonify({'error': 'Log file not found'}), 404
-
-        # Check if log file is deleted
         if log_file.is_deleted:
             return jsonify({'error': 'Log file has been deleted'}), 410
 
-        # Get file path for parsing
         storage_service = StorageFactory.get_storage_service()
         if log_file.storage_type == 's3':
-            # Download from S3 to temp file
             temp_fd, filepath = tempfile.mkstemp(suffix='.tmp', dir=TEMP_FOLDER)
             os.close(temp_fd)
             try:
-                # Download file from S3 using boto3
                 if hasattr(storage_service, 's3_client'):
                     storage_service.s3_client.download_file(
                         storage_service.config.bucket_name,
                         log_file.stored_filename,
                         filepath
                     )
-                    app.logger.info(f"Downloaded S3 file {log_file.stored_filename} to {filepath}")
+                    app.logger.info("Downloaded S3 file %s to %s", log_file.stored_filename, filepath)
                 else:
                     raise Exception("S3 storage not properly configured")
-            except Exception as e:
-                app.logger.error(f"Failed to download file from S3: {str(e)}")
+            except Exception as err:
+                app.logger.error("Failed to download file from S3: %s", err)
                 if os.path.exists(filepath):
                     os.remove(filepath)
                 return jsonify({'error': 'Failed to retrieve log file from storage'}), 500
         else:
-            # Local storage
             filepath = log_file.file_path
 
-        # Validate file still exists
         if not os.path.exists(filepath):
             return jsonify({'error': 'Log file not found on disk'}), 404
 
-        # Process each parse mode and create separate analyses
-        results = []
-        failed_analyses = []
-
+        analysis_jobs = []
         for parse_mode in parse_modes:
-            try:
-                # Create analysis record for this drill-down
-                parser_obj = db.query(Parser).filter(Parser.parser_key == parse_mode).first()
-                analysis = Analysis(
-                    user_id=current_user.id,
-                    log_file_id=log_file.id,
-                    parser_id=parser_obj.id if parser_obj else None,
-                    parse_mode=parse_mode,
-                    session_name=session_name if session_name else parent_analysis.session_name,
-                    zendesk_case=zendesk_case if zendesk_case else parent_analysis.zendesk_case,
-                    timezone=timezone,
-                    begin_date=session_start,
-                    end_date=session_end,
-                    status='running',
-                    started_at=datetime.utcnow(),
-                    retention_days=int(os.getenv('UPLOAD_RETENTION_DAYS', '30')),
-                    parent_analysis_id=parent_analysis_id,
-                    is_drill_down=True
-                )
-                analysis.expires_at = datetime.utcnow() + timedelta(days=analysis.retention_days)
-                db.add(analysis)
-                db.flush()
+            parser_obj = db.query(Parser).filter(Parser.parser_key == parse_mode).first()
+            analysis = Analysis(
+                user_id=current_user.id,
+                log_file_id=log_file.id,
+                parser_id=parser_obj.id if parser_obj else None,
+                parse_mode=parse_mode,
+                session_name=session_name if session_name else parent_analysis.session_name,
+                zendesk_case=zendesk_case if zendesk_case else parent_analysis.zendesk_case,
+                timezone=timezone,
+                begin_date=session_start,
+                end_date=session_end,
+                status='running',
+                started_at=datetime.utcnow(),
+                retention_days=int(os.getenv('UPLOAD_RETENTION_DAYS', '30')),
+                parent_analysis_id=parent_analysis_id,
+                is_drill_down=True
+            )
+            analysis.expires_at = datetime.utcnow() + timedelta(days=analysis.retention_days)
+            db.add(analysis)
+            db.flush()
 
-                app.logger.info(f"Processing drill-down analysis {analysis.id} in {parse_mode} mode for user {current_user.username}")
+            analysis_jobs.append({
+                'analysis_id': analysis.id,
+                'parse_mode': parse_mode
+            })
 
-                # Get appropriate parser
-                parser = get_parser(parse_mode)
-
-                # Register parser for in-process cancellation
-                parser_key = f"{current_user.id}:{analysis.id}"
-                with parsers_lock:
-                    active_parsers[parser_key] = parser
-
-                try:
-                    # Process the file using parser
-                    result = parser.process(
-                        archive_path=filepath,
-                        timezone=timezone,
-                        begin_date=session_start,
-                        end_date=session_end
-                    )
-                finally:
-                    # Always remove parser from active list
-                    with parsers_lock:
-                        active_parsers.pop(parser_key, None)
-
-                processing_time = time.time() - start_time
-
-                # Update analysis status
-                analysis.status = 'completed'
-                analysis.completed_at = datetime.utcnow()
-                analysis.processing_time_seconds = int(processing_time)
-
-                # Save analysis results
-                analysis_result = AnalysisResult(
-                    analysis_id=analysis.id,
-                    raw_output=result['raw_output'],
-                    parsed_data=result['parsed_data']
-                )
-                db.add(analysis_result)
-
-                results.append({
-                    'analysis_id': analysis.id,
-                    'parse_mode': parse_mode,
-                    'status': 'completed',
-                    'parsed_data': result['parsed_data'],
-                    'processing_time': round(processing_time, 2)
-                })
-
-                app.logger.info(f"Drill-down analysis {analysis.id} completed successfully")
-
-            except CancellationException:
-                analysis.status = 'cancelled'
-                analysis.completed_at = datetime.utcnow()
-                analysis.error_message = 'Analysis cancelled by user'
-                failed_analyses.append({
-                    'parse_mode': parse_mode,
-                    'error': 'Analysis cancelled by user'
-                })
-                app.logger.info(f"Drill-down analysis {analysis.id} was cancelled")
-
-            except Exception as parse_error:
-                analysis.status = 'failed'
-                analysis.completed_at = datetime.utcnow()
-                analysis.error_message = str(parse_error)
-                failed_analyses.append({
-                    'parse_mode': parse_mode,
-                    'error': str(parse_error)
-                })
-                app.logger.error(f"Drill-down analysis {analysis.id} failed: {str(parse_error)}\n{traceback.format_exc()}")
-
-        # Commit all changes
         db.commit()
 
-        # Clean up temp file if using S3
-        if log_file.storage_type == 's3' and os.path.exists(filepath):
-            try:
-                os.remove(filepath)
-                app.logger.info(f"Cleaned up temporary file: {filepath}")
-            except Exception as e:
-                app.logger.warning(f"Failed to clean up temp file {filepath}: {str(e)}")
-
-        # Log audit
         log_audit(db, current_user.id, 'session_drill_down', 'analysis', parent_analysis_id, {
             'session_start': session_start,
             'session_end': session_end,
             'parse_modes': parse_modes,
-            'successful': len(results),
-            'failed': len(failed_analyses)
+            'status': 'started'
         })
+
+        processing_thread = threading.Thread(
+            target=_process_drilldown_async,
+            args=(
+                analysis_jobs,
+                filepath,
+                timezone,
+                session_start,
+                session_end,
+                current_user.id,
+                current_user.username,
+                parent_analysis_id,
+                session_name,
+                zendesk_case,
+                log_file.storage_type
+            ),
+            daemon=True
+        )
+        processing_thread.start()
 
         return jsonify({
             'success': True,
-            'message': f'Created {len(results)} drill-down analyses',
-            'results': results,
-            'failed': failed_analyses,
+            'message': 'Drill-down analyses started',
+            'analysis_ids': [job['analysis_id'] for job in analysis_jobs],
+            'analyses': analysis_jobs,
             'parent_analysis_id': parent_analysis_id
-        }), 200
+        }), 202
 
-    except Exception as e:
+    except Exception as err:
         db.rollback()
-        app.logger.error(f"Drill-down analysis error: {str(e)}\n{traceback.format_exc()}")
+        app.logger.error("Drill-down analysis error: %s\n%s", err, traceback.format_exc())
         return jsonify({'error': 'An error occurred during drill-down analysis. Please try again.'}), 500
 
 

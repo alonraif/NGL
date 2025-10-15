@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import ModemStats from './ModemStats';
 import BandwidthChart from './BandwidthChart';
@@ -30,6 +30,7 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
   const [error, setError] = useState('');
   const [expandedResults, setExpandedResults] = useState(new Set());
   const [parserStatuses, setParserStatuses] = useState({}); // Track status of each parser: queued, running, completed, failed
+  const pollingRef = useRef(null);
 
   const isComplete = session.type === 'complete';
   const needsEndTime = !isComplete && !session.end;
@@ -40,6 +41,15 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
       setEndTime(session.end);
     }
   }, [session.end, isComplete]);
+
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, []);
 
   const toggleParser = (parserValue) => {
     const newSelected = new Set(selectedParsers);
@@ -61,6 +71,158 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
     setExpandedResults(newExpanded);
   };
 
+  const startPolling = (analysisEntries, parsersArray) => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+
+    setError('');
+
+    if (!analysisEntries || analysisEntries.length === 0) {
+      setIsRunning(false);
+      return;
+    }
+
+    const idMap = {};
+    analysisEntries.forEach(entry => {
+      if (entry && entry.parse_mode && entry.analysis_id) {
+        idMap[entry.parse_mode] = entry.analysis_id;
+      }
+    });
+
+    const modes = Object.keys(idMap);
+    if (modes.length === 0) {
+      setIsRunning(false);
+      return;
+    }
+
+    const missingModes = parsersArray.filter(mode => !idMap[mode]);
+    if (missingModes.length > 0) {
+      setParserStatuses(prev => {
+        const updated = { ...prev };
+        missingModes.forEach(mode => {
+          updated[mode] = {
+            ...(updated[mode] || {}),
+            status: 'failed',
+            error: 'Analysis not created'
+          };
+        });
+        return updated;
+      });
+    }
+
+    const failureSet = new Set();
+    const pending = new Set(modes);
+    const order = [...parsersArray];
+    missingModes.forEach(mode => failureSet.add(mode));
+
+    const fetchStatuses = async () => {
+      if (pending.size === 0) {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        setIsRunning(false);
+        setError(failureSet.size > 0 ? `Some analyses failed: ${Array.from(failureSet).join(', ')}` : '');
+        return;
+      }
+
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      await Promise.all([...pending].map(async (mode) => {
+        const analysisId = idMap[mode];
+        if (!analysisId) {
+          pending.delete(mode);
+          failureSet.add(mode);
+          setParserStatuses(prev => ({
+            ...prev,
+            [mode]: { ...(prev[mode] || {}), status: 'failed', error: 'Missing analysis ID' }
+          }));
+          return;
+        }
+
+        try {
+          const response = await axios.get(`/api/analyses/${analysisId}`, { headers });
+          const { analysis, result } = response.data;
+          if (!analysis) {
+            return;
+          }
+
+          const status = analysis.status;
+
+          if (status === 'completed') {
+            pending.delete(mode);
+            setParserStatuses(prev => ({
+              ...prev,
+              [mode]: { ...(prev[mode] || {}), status: 'completed' }
+            }));
+
+            if (result) {
+              const completedResult = {
+                ...result,
+                parse_mode: analysis.parse_mode,
+                analysis_id: analysis.id
+              };
+
+              setResults(prev => {
+                const filtered = prev.filter(item => item.analysis_id !== analysis.id);
+                const updated = [...filtered, completedResult];
+                updated.sort((a, b) => order.indexOf(a.parse_mode) - order.indexOf(b.parse_mode));
+                if (onResultsChange) {
+                  onResultsChange(updated);
+                }
+                return updated;
+              });
+            }
+          } else if (status === 'failed' || status === 'cancelled') {
+            pending.delete(mode);
+            failureSet.add(mode);
+            setParserStatuses(prev => ({
+              ...prev,
+              [mode]: {
+                ...(prev[mode] || {}),
+                status,
+                error: analysis.error_message || 'Analysis failed'
+              }
+            }));
+          } else {
+            setParserStatuses(prev => ({
+              ...prev,
+              [mode]: { ...(prev[mode] || {}), status: 'running' }
+            }));
+          }
+        } catch (err) {
+          pending.delete(mode);
+          failureSet.add(mode);
+          setParserStatuses(prev => ({
+            ...prev,
+            [mode]: {
+              ...(prev[mode] || {}),
+              status: 'failed',
+              error: err.response?.data?.error || err.message || 'Failed to fetch status'
+            }
+          }));
+        }
+      }));
+
+      if (pending.size === 0) {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        setIsRunning(false);
+        setError(failureSet.size > 0 ? `Some analyses failed: ${Array.from(failureSet).join(', ')}` : '');
+      }
+    };
+
+    fetchStatuses();
+    if (pending.size > 0) {
+      pollingRef.current = setInterval(fetchStatuses, 4000);
+    }
+  };
+
   const handleRunAnalysis = async () => {
     if (selectedParsers.size === 0) {
       setError('Please select at least one parser');
@@ -72,92 +234,75 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
       return;
     }
 
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+
     setIsRunning(true);
     setError('');
     setResults([]);
+    if (onResultsChange) {
+      onResultsChange([]);
+    }
 
-    // Initialize all selected parsers as queued
+    const parsersArray = Array.from(selectedParsers);
+
     const initialStatuses = {};
-    Array.from(selectedParsers).forEach((parser, idx) => {
+    parsersArray.forEach((parser, idx) => {
       initialStatuses[parser] = { status: 'queued', position: idx + 1 };
     });
     setParserStatuses(initialStatuses);
 
     try {
-      const parsersArray = Array.from(selectedParsers);
-      const newResults = [];
-
-      // Process each parser sequentially with status updates
-      for (let i = 0; i < parsersArray.length; i++) {
-        const parseMode = parsersArray[i];
-
-        // Mark current parser as running
-        setParserStatuses(prev => ({
-          ...prev,
-          [parseMode]: { ...prev[parseMode], status: 'running' }
-        }));
-
-        try {
-          const response = await axios.post('/api/analyses/from-session', {
-            parent_analysis_id: analysisData.analysisId,
-            log_file_id: analysisData.logFileId,
-            session_start: session.start,
-            session_end: isComplete ? session.end : endTime,
-            parse_modes: [parseMode], // Single parser at a time
-            timezone: analysisData.timezone || 'UTC',
-            session_name: analysisData.sessionName || 'Session Analysis',
-            zendesk_case: analysisData.zendeskCase || ''
-          }, {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-          });
-
-          if (response.data.success && response.data.results.length > 0) {
-            const result = response.data.results[0];
-            newResults.push(result);
-
-            // Mark as completed
-            setParserStatuses(prev => ({
-              ...prev,
-              [parseMode]: { ...prev[parseMode], status: 'completed' }
-            }));
-
-            // Update results incrementally
-            setResults([...newResults]);
-            if (onResultsChange) {
-              onResultsChange([...newResults]);
-            }
-          } else {
-            // Mark as failed
-            setParserStatuses(prev => ({
-              ...prev,
-              [parseMode]: { ...prev[parseMode], status: 'failed' }
-            }));
-          }
-        } catch (err) {
-          // Mark as failed
-          setParserStatuses(prev => ({
-            ...prev,
-            [parseMode]: { ...prev[parseMode], status: 'failed' }
-          }));
-          console.error(`Failed to run parser ${parseMode}:`, err);
+      const response = await axios.post('/api/analyses/from-session', {
+        parent_analysis_id: analysisData.analysisId,
+        log_file_id: analysisData.logFileId,
+        session_start: session.start,
+        session_end: isComplete ? session.end : endTime,
+        parse_modes: parsersArray,
+        timezone: analysisData.timezone || 'UTC',
+        session_name: analysisData.sessionName || 'Session Analysis',
+        zendesk_case: analysisData.zendeskCase || ''
+      }, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
-      }
+      });
 
-      // Check if any failed
-      const failedParsers = Object.entries(parserStatuses)
-        .filter(([_, status]) => status.status === 'failed')
-        .map(([parser, _]) => parser);
+      if (response.data.success) {
+        const analysisEntries = response.data.analyses || [];
+        setParserStatuses(prev => {
+          const updated = { ...prev };
+          parsersArray.forEach(parseMode => {
+            updated[parseMode] = { ...(updated[parseMode] || {}), status: 'running' };
+          });
+          return updated;
+        });
 
-      if (failedParsers.length > 0) {
-        setError(`Some analyses failed: ${failedParsers.join(', ')}`);
+        startPolling(analysisEntries, parsersArray);
+      } else {
+        setParserStatuses(prev => {
+          const updated = { ...prev };
+          parsersArray.forEach(parseMode => {
+            updated[parseMode] = { ...updated[parseMode], status: 'failed' };
+          });
+          return updated;
+        });
+        setIsRunning(false);
+        setError(response.data.error || 'Failed to run drill-down analysis');
       }
     } catch (err) {
       const errorMsg = err.response?.data?.error || err.message || 'Failed to run drill-down analysis';
+      setParserStatuses(prev => {
+        const updated = { ...prev };
+        parsersArray.forEach(parseMode => {
+          updated[parseMode] = { ...updated[parseMode], status: 'failed' };
+        });
+        return updated;
+      });
       setError(errorMsg);
       console.error('Drill-down error:', err);
-    } finally {
       setIsRunning(false);
     }
   };
@@ -189,6 +334,10 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
   const borderColor = 'var(--border-color)';
   const primaryColor = 'var(--primary)';
   const cardBackground = 'var(--bg-card)';
+  const totalParsers = Object.keys(parserStatuses).length;
+  const completedCount = Object.values(parserStatuses).filter(
+    status => ['completed', 'failed', 'cancelled'].includes(status?.status)
+  ).length;
 
   return (
     <div style={{
@@ -330,7 +479,7 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
       </div>
 
       {/* Progress Indicators */}
-      {isRunning && Object.keys(parserStatuses).length > 0 && (
+      {totalParsers > 0 && (
         <div style={{
           background: 'var(--info-light)',
           padding: '15px',
@@ -339,9 +488,11 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
           border: '1px solid var(--info)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <strong style={{ color: 'var(--info)' }}>Processing Drill-Down Analyses</strong>
+            <strong style={{ color: 'var(--info)' }}>
+              {isRunning ? 'Processing Drill-Down Analyses' : 'Drill-Down Analyses'}
+            </strong>
             <span style={{ color: textSecondary, fontSize: '0.9rem' }}>
-              {Object.values(parserStatuses).filter(s => s.status === 'completed').length} / {Object.keys(parserStatuses).length} completed
+              {completedCount} / {totalParsers} completed
             </span>
           </div>
 
@@ -357,7 +508,7 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
             <div style={{
               height: '100%',
               background: 'linear-gradient(90deg, var(--brand-primary) 0%, var(--brand-primary-hover) 100%)',
-              width: `${(Object.values(parserStatuses).filter(s => s.status === 'completed').length / Object.keys(parserStatuses).length) * 100}%`,
+              width: `${totalParsers === 0 ? 0 : (completedCount / totalParsers) * 100}%`,
               transition: 'width 0.5s ease'
             }} />
           </div>
@@ -384,6 +535,10 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
                 statusIcon = '❌';
                 statusText = 'Failed';
                 statusColor = 'var(--error)';
+              } else if (status === 'cancelled') {
+                statusIcon = '🚫';
+                statusText = 'Cancelled';
+                statusColor = 'var(--error)';
               }
 
               return (
@@ -405,9 +560,16 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
                       {parser?.label || parserValue}
                     </span>
                   </div>
-                  <span style={{ color: statusColor, fontSize: '0.85rem', fontWeight: '600' }}>
-                    {statusText}
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                    <span style={{ color: statusColor, fontSize: '0.85rem', fontWeight: '600' }}>
+                      {statusText}
+                    </span>
+                    {parserStatuses[parserValue]?.error && (
+                      <span style={{ color: 'var(--error)', fontSize: '0.75rem' }}>
+                        {parserStatuses[parserValue]?.error}
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })}
