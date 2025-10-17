@@ -162,10 +162,6 @@ export const ParsingProvider = ({ children }) => {
     // Don't clear activeJobId - keep the job active so results remain visible
     // User can manually clear it with the Cancel/Clear button
 
-    // Auto-clear completed job from storage after 5 minutes
-    setTimeout(() => {
-      clearJob(jobId);
-    }, 5 * 60 * 1000);
   }, []);
 
   const cancelJob = useCallback((jobId) => {

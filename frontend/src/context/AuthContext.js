@@ -32,6 +32,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await axios.get('/api/auth/me');
       setUser(response.data);
+      setLastActivity(Date.now());
     } catch (error) {
       console.error('Failed to fetch user:', error);
       // Token invalid, clear it
@@ -52,6 +53,7 @@ export const AuthProvider = ({ children }) => {
         const { access_token, user } = response.data;
         setToken(access_token);
         setUser(user);
+        setLastActivity(Date.now());
         localStorage.setItem('token', access_token);
         axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
         return { success: true };
@@ -136,7 +138,16 @@ export const AuthProvider = ({ children }) => {
     ];
 
     const updateActivity = () => {
-      setLastActivity(Date.now());
+      const now = Date.now();
+      const timeSinceLastActivity = now - lastActivity;
+
+      if (timeSinceLastActivity >= INACTIVITY_TIMEOUT) {
+        console.log('[AuthContext] User inactive for 10 minutes, logging out from activity event...');
+        logout();
+        return;
+      }
+
+      setLastActivity(now);
     };
 
     // Add event listeners

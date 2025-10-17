@@ -1071,6 +1071,7 @@ const AdminDashboard = () => {
                     <th>Email</th>
                     <th>Role</th>
                     <th>Storage</th>
+                    <th>Last Login</th>
                     <th>Status</th>
                     <th>Actions</th>
                   </tr>
@@ -1086,6 +1087,7 @@ const AdminDashboard = () => {
                         </span>
                       </td>
                       <td>{u.storage_used_mb} / {u.storage_quota_mb} MB</td>
+                      <td>{formatDateTime(u.last_login)}</td>
                       <td>
                         <span className={`status-badge ${u.is_active ? 'status-success' : 'status-error'}`}>
                           {u.is_active ? 'Active' : 'Inactive'}
