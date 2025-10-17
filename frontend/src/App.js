@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import UploadPage from './pages/UploadPage';
 import AnalysisHistory from './pages/AnalysisHistory';
 import AdminDashboard from './pages/AdminDashboard';
+import ChangePassword from './pages/ChangePassword';
 import './App.css';
 
 // Protected route component
@@ -83,6 +84,14 @@ function App() {
           <AdminRoute>
             <AdminDashboard />
           </AdminRoute>
+        }
+      />
+      <Route
+        path="/change-password"
+        element={
+          <ProtectedRoute>
+            <ChangePassword />
+          </ProtectedRoute>
         }
       />
       {/* Catch all - redirect to login or home */}

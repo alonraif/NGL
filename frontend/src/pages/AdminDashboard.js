@@ -788,6 +788,9 @@ const AdminDashboard = () => {
             <button onClick={() => navigate('/history')} className="btn btn-secondary">
               History
             </button>
+            <button onClick={() => navigate('/change-password')} className="btn btn-secondary">
+              Change Password
+            </button>
             <button onClick={logout} className="btn btn-secondary">
               Logout
             </button>
@@ -994,9 +997,9 @@ const AdminDashboard = () => {
                           value={newUser.password}
                           onChange={(e) => setNewUser({...newUser, password: e.target.value})}
                           required
-                          minLength={8}
+                          minLength={12}
                         />
-                        <small>Min 8 characters, 1 uppercase, 1 lowercase, 1 number</small>
+                        <small>Min 12 characters, 1 uppercase, 1 lowercase, 1 number</small>
                       </div>
                       <div className="form-group">
                         <label>Role</label>
@@ -1043,9 +1046,9 @@ const AdminDashboard = () => {
                         type="password"
                         name="new_password"
                         required
-                        minLength={8}
+                        minLength={12}
                       />
-                      <small>Min 8 characters, 1 uppercase, 1 lowercase, 1 number</small>
+                      <small>Min 12 characters, 1 uppercase, 1 lowercase, 1 number</small>
                     </div>
                     <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
                       <button type="submit" className="btn btn-primary">Reset Password</button>

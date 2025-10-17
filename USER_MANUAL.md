@@ -121,12 +121,12 @@ A warning will appear 1 minute before automatic logout.
 ### Password Requirements
 
 Passwords must meet these criteria:
-- Minimum 8 characters
+- Minimum 12 characters
 - At least one uppercase letter
 - At least one lowercase letter
 - At least one number
 
-Example valid passwords: `Support2024!`, `Engineer123`, `LiveU2025`
+Example valid passwords: `Support2024!`, `Engineer12345`, `LiveU2025Pass`
 
 ### Troubleshooting Login Issues
 
@@ -747,7 +747,7 @@ Look for: Quality degradation over time
 
 **Strong Passwords:**
 - Use password manager
-- Minimum 12 characters
+- Minimum 12 characters (required by system)
 - Mix letters, numbers, symbols
 - Don't reuse passwords
 

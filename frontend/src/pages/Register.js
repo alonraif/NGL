@@ -14,8 +14,8 @@ const Register = () => {
   const navigate = useNavigate();
 
   const validatePassword = (pwd) => {
-    if (pwd.length < 8) {
-      return 'Password must be at least 8 characters long';
+    if (pwd.length < 12) {
+      return 'Password must be at least 12 characters long';
     }
     if (!/[A-Z]/.test(pwd)) {
       return 'Password must contain at least one uppercase letter';
@@ -123,7 +123,7 @@ const Register = () => {
               disabled={loading}
             />
             <small className="form-hint">
-              Must be 8+ characters with uppercase, lowercase, and number
+              Must be 12+ characters with uppercase, lowercase, and number
             </small>
           </div>
 

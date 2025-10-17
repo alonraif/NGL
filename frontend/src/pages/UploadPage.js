@@ -378,6 +378,9 @@ function UploadPage() {
                 Admin
               </button>
             )}
+            <button onClick={() => navigate('/change-password')} className="btn btn-secondary">
+              Change Password
+            </button>
             <button onClick={logout} className="btn btn-secondary">
               Logout
             </button>
