@@ -1,19 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { useParsing } from '../context/ParsingContext';
 import '../App.css';
 import FileUpload from '../components/FileUpload';
 import Results from '../components/Results';
 import ParserProgress from '../components/ParserProgress';
-import ThemeToggle from '../components/ThemeToggle';
+import Header from '../components/Header';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
 function UploadPage() {
-  const { user, logout, isAdmin } = useAuth();
-  const navigate = useNavigate();
   const {
     startParsing,
     updateParserStatus,
@@ -349,43 +345,7 @@ function UploadPage() {
   return (
     <div className="App">
       <div className="container">
-        <header className="header">
-          <div className="header-content">
-            <img
-              src="https://cdn-liveutv.pressidium.com/wp-content/uploads/2024/01/Live-and-Ulimted-Light-Background-V2.png"
-              alt="LiveU Logo"
-              className="header-logo"
-            />
-            <div className="header-text">
-              <h1>NGL - Next Gen LULA</h1>
-              <p>Next Generation LiveU Log Analyzer</p>
-            </div>
-          </div>
-          <div className="header-actions">
-            <div className="user-info">
-              <span className="username">{user?.username}</span>
-              {isAdmin() && <span className="admin-badge">Admin</span>}
-              <span className="storage-info">
-                {user?.storage_used_mb?.toFixed(1) || 0} / {user?.storage_quota_mb || 0} MB
-              </span>
-            </div>
-            <ThemeToggle />
-            <button onClick={() => navigate('/history')} className="btn btn-secondary">
-              History
-            </button>
-            {isAdmin() && (
-              <button onClick={() => navigate('/admin')} className="btn btn-secondary">
-                Admin
-              </button>
-            )}
-            <button onClick={() => navigate('/change-password')} className="btn btn-secondary">
-              Change Password
-            </button>
-            <button onClick={logout} className="btn btn-secondary">
-              Logout
-            </button>
-          </div>
-        </header>
+        <Header currentPage="upload" showStorageInfo={true} />
 
         {(loading || isCompleted) && activeJob && (
           <div className="card" style={{

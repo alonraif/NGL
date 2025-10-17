@@ -1,14 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { useParsing } from '../context/ParsingContext';
 import axios from 'axios';
 import Results from '../components/Results';
-import ThemeToggle from '../components/ThemeToggle';
+import Header from '../components/Header';
 import '../App.css';
 
 const AnalysisHistory = () => {
-  const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
   const { getActiveJob, isParsingActive } = useParsing();
   const [analyses, setAnalyses] = useState([]);
@@ -228,26 +226,27 @@ const AnalysisHistory = () => {
     return (
       <div className="App">
         <div className="container">
-          <header className="header">
-            <div className="header-content">
-              <h1>Analysis Results</h1>
-            </div>
-            <div className="header-actions">
-              <ThemeToggle />
-              <button
-                onClick={() => downloadLogFile(selectedAnalysis.analysis.id, selectedAnalysis.analysis.filename)}
-                className="btn btn-primary"
-              >
-                📥 Download Log File
-              </button>
-              <button onClick={() => setViewingResult(false)} className="btn btn-secondary">
-                ← Back to History
-              </button>
-              <button onClick={() => navigate('/')} className="btn btn-secondary">
-                Home
-              </button>
-            </div>
-          </header>
+          <Header
+            currentPage="results"
+            showStorageInfo={false}
+            showUserInfo={false}
+            customActions={
+              <>
+                <button
+                  onClick={() => downloadLogFile(selectedAnalysis.analysis.id, selectedAnalysis.analysis.filename)}
+                  className="btn btn-primary"
+                >
+                  📥 Download Log File
+                </button>
+                <button onClick={() => setViewingResult(false)} className="btn btn-secondary">
+                  ← Back to History
+                </button>
+                <button onClick={() => navigate('/')} className="btn btn-secondary">
+                  Home
+                </button>
+              </>
+            }
+          />
 
           <div className="card">
             <h2>Analysis Details</h2>
@@ -298,32 +297,7 @@ const AnalysisHistory = () => {
   return (
     <div className="App">
       <div className="container">
-        <header className="header">
-          <div className="header-content">
-            <h1>Analysis History</h1>
-          </div>
-          <div className="header-actions">
-            <div className="user-info">
-              <span className="username">{user?.username}</span>
-              {isAdmin() && <span className="admin-badge">Admin</span>}
-            </div>
-            <ThemeToggle />
-            <button onClick={() => navigate('/')} className="btn btn-secondary">
-              Upload
-            </button>
-            {isAdmin() && (
-              <button onClick={() => navigate('/admin')} className="btn btn-secondary">
-                Admin
-              </button>
-            )}
-            <button onClick={() => navigate('/change-password')} className="btn btn-secondary">
-              Change Password
-            </button>
-            <button onClick={logout} className="btn btn-secondary">
-              Logout
-            </button>
-          </div>
-        </header>
+        <Header currentPage="history" showStorageInfo={false} />
 
         {isParsingActive() && activeJob && (
           <div className="parsing-banner">

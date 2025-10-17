@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
-import ThemeToggle from '../components/ThemeToggle';
+import Header from '../components/Header';
 import '../App.css';
 
 const AdminDashboard = () => {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('stats');
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
@@ -772,30 +770,7 @@ const AdminDashboard = () => {
   return (
     <div className="App">
       <div className="container">
-        <header className="header">
-          <div className="header-content">
-            <h1>Admin Dashboard</h1>
-          </div>
-          <div className="header-actions">
-            <div className="user-info">
-              <span className="username">{user?.username}</span>
-              <span className="admin-badge">Admin</span>
-            </div>
-            <ThemeToggle />
-            <button onClick={() => navigate('/')} className="btn btn-secondary">
-              Upload
-            </button>
-            <button onClick={() => navigate('/history')} className="btn btn-secondary">
-              History
-            </button>
-            <button onClick={() => navigate('/change-password')} className="btn btn-secondary">
-              Change Password
-            </button>
-            <button onClick={logout} className="btn btn-secondary">
-              Logout
-            </button>
-          </div>
-        </header>
+        <Header currentPage="admin" showStorageInfo={false} />
 
         <div className="card">
           <div className="admin-tabs">

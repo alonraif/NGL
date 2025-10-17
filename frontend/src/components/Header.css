@@ -1,0 +1,127 @@
+.header {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.header-logo {
+  height: 60px;
+  width: auto;
+  object-fit: contain;
+}
+
+.header-text h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.header-text p {
+  margin: 4px 0 0 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.2;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg-hover);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.username {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.admin-badge {
+  background: linear-gradient(135deg, var(--brand-gradient-start) 0%, var(--brand-gradient-end) 100%);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.storage-info {
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border-color);
+}
+
+/* Responsive design */
+@media (max-width: 1200px) {
+  .header {
+    gap: 16px;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 768px) {
+  .header {
+    padding: 16px;
+  }
+
+  .header-logo {
+    height: 48px;
+  }
+
+  .header-text h1 {
+    font-size: 20px;
+  }
+
+  .header-text p {
+    font-size: 12px;
+  }
+
+  .header-actions {
+    gap: 8px;
+  }
+
+  .user-info {
+    padding: 6px 12px;
+  }
+
+  .username {
+    font-size: 13px;
+  }
+
+  .storage-info {
+    font-size: 12px;
+  }
+}

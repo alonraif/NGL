@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import './Auth.css';
+import Header from '../components/Header';
+import '../App.css';
 
 const ChangePassword = () => {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -10,7 +11,7 @@ const ChangePassword = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const { changePassword, user, logout } = useAuth();
+  const { changePassword } = useAuth();
   const navigate = useNavigate();
 
   const validatePassword = (pwd) => {
@@ -86,118 +87,106 @@ const ChangePassword = () => {
   };
 
   return (
-    <div className="auth-container">
-      <div className="auth-card">
-        <div className="auth-header">
-          <h1>NGL</h1>
-          <p>Log Analysis Platform</p>
-        </div>
+    <div className="App">
+      <div className="container">
+        <Header currentPage="change-password" showStorageInfo={false} />
 
-        <form onSubmit={handleSubmit} className="auth-form">
+        <div className="card">
           <h2>Change Password</h2>
 
-          {user && (
-            <div style={{
-              marginBottom: '20px',
-              padding: '10px',
-              background: 'var(--bg-tertiary)',
-              borderRadius: '8px',
-              textAlign: 'center'
-            }}>
-              <small style={{ color: 'var(--text-secondary)' }}>
-                Logged in as: <strong>{user.username}</strong>
+          <form onSubmit={handleSubmit}>
+            {error && (
+              <div className="error-message" style={{
+                padding: '12px',
+                marginBottom: '20px',
+                background: 'var(--error-bg)',
+                border: '1px solid var(--error)',
+                borderRadius: '8px',
+                color: 'var(--error)',
+                textAlign: 'center'
+              }}>
+                {error}
+              </div>
+            )}
+
+            {success && (
+              <div className="success-message" style={{
+                padding: '12px',
+                marginBottom: '20px',
+                background: 'var(--success-bg)',
+                border: '1px solid var(--success)',
+                borderRadius: '8px',
+                color: 'var(--success)',
+                textAlign: 'center'
+              }}>
+                {success}
+              </div>
+            )}
+
+            <div className="form-group">
+              <label htmlFor="currentPassword">Current Password</label>
+              <input
+                type="password"
+                id="currentPassword"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                required
+                autoFocus
+                disabled={loading}
+                className="input"
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="newPassword">New Password</label>
+              <input
+                type="password"
+                id="newPassword"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+                disabled={loading}
+                className="input"
+              />
+              <small style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+                Must be 12+ characters with uppercase, lowercase, and number
               </small>
             </div>
-          )}
 
-          {error && (
-            <div className="auth-error">
-              {error}
+            <div className="form-group">
+              <label htmlFor="confirmPassword">Confirm New Password</label>
+              <input
+                type="password"
+                id="confirmPassword"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                disabled={loading}
+                className="input"
+              />
             </div>
-          )}
 
-          {success && (
-            <div className="auth-success" style={{
-              padding: '12px',
-              marginBottom: '20px',
-              background: 'var(--success-bg)',
-              border: '1px solid var(--success)',
-              borderRadius: '8px',
-              color: 'var(--success)',
-              textAlign: 'center'
-            }}>
-              {success}
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={loading}
+                style={{ flex: 1 }}
+              >
+                {loading ? 'Changing Password...' : 'Change Password'}
+              </button>
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="btn btn-secondary"
+                disabled={loading}
+                style={{ flex: 1 }}
+              >
+                Cancel
+              </button>
             </div>
-          )}
-
-          <div className="form-group">
-            <label htmlFor="currentPassword">Current Password</label>
-            <input
-              type="password"
-              id="currentPassword"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              required
-              autoFocus
-              disabled={loading}
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="newPassword">New Password</label>
-            <input
-              type="password"
-              id="newPassword"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              required
-              disabled={loading}
-            />
-            <small className="form-hint">
-              Must be 12+ characters with uppercase, lowercase, and number
-            </small>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="confirmPassword">Confirm New Password</label>
-            <input
-              type="password"
-              id="confirmPassword"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-              disabled={loading}
-            />
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-            <button
-              type="submit"
-              className="auth-button"
-              disabled={loading}
-              style={{ flex: 1 }}
-            >
-              {loading ? 'Changing Password...' : 'Change Password'}
-            </button>
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="auth-button"
-              disabled={loading}
-              style={{
-                flex: 1,
-                background: 'var(--bg-secondary)',
-                color: 'var(--text-primary)'
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-
-          <div className="auth-footer">
-            <Link to="/">Back to Dashboard</Link>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
     </div>
   );
