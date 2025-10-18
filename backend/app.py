@@ -19,7 +19,7 @@ from queue import Empty
 from parsers import get_parser
 from parsers.base import CancellationException
 from database import init_db, SessionLocal
-from models import User, Parser, LogFile, Analysis, AnalysisResult, SSLConfiguration
+from models import User, Parser, LogFile, Analysis, AnalysisResult, SSLConfiguration, Bookmark
 from auth import token_required, log_audit
 from auth_routes import auth_bp
 from admin_routes import admin_bp
@@ -703,13 +703,70 @@ def cancel_analysis(current_user, db):
 @app.route('/api/analyses', methods=['GET'])
 @token_required
 def get_analyses(current_user, db):
-    """Get user's analysis history"""
+    """Get user's analysis history with multi-field filtering"""
     try:
-        # Get analyses for current user (not deleted)
-        analyses = db.query(Analysis).filter(
+        # Get filter parameters (same as /api/analyses/all)
+        session_name = request.args.get('session_name', '').strip()
+        zendesk_case = request.args.get('zendesk_case', '').strip()
+        filename = request.args.get('filename', '').strip()
+        analysis_id = request.args.get('analysis_id', '').strip()
+        status = request.args.get('status', '').strip()
+        parser_mode = request.args.get('parser_mode', '').strip()
+        date_from = request.args.get('date_from', '').strip()
+        date_to = request.args.get('date_to', '').strip()
+
+        from sqlalchemy.orm import joinedload
+        from datetime import datetime, timedelta
+
+        # Base query: user's own analyses (not deleted)
+        query = db.query(Analysis).outerjoin(
+            LogFile, Analysis.log_file_id == LogFile.id
+        ).options(
+            joinedload(Analysis.log_file)
+        ).filter(
             Analysis.user_id == current_user.id,
             Analysis.is_deleted == False
-        ).order_by(Analysis.created_at.desc()).all()
+        )
+
+        # Apply filters (same logic as /api/analyses/all)
+        if session_name:
+            query = query.filter(Analysis.session_name.ilike(f'%{session_name}%'))
+
+        if zendesk_case:
+            query = query.filter(Analysis.zendesk_case.ilike(f'%{zendesk_case}%'))
+
+        if filename:
+            query = query.filter(LogFile.original_filename.ilike(f'%{filename}%'))
+
+        if analysis_id:
+            if analysis_id.isdigit():
+                query = query.filter(Analysis.id == int(analysis_id))
+            else:
+                query = query.filter(Analysis.session_name.ilike(f'%{analysis_id}%'))
+
+        if status:
+            query = query.filter(Analysis.status == status.lower())
+
+        if parser_mode:
+            query = query.filter(Analysis.parse_mode == parser_mode)
+
+        if date_from:
+            try:
+                date_from_obj = datetime.fromisoformat(date_from)
+                query = query.filter(Analysis.created_at >= date_from_obj)
+            except ValueError:
+                app.logger.warning(f'Invalid date_from format: {date_from}')
+
+        if date_to:
+            try:
+                date_to_obj = datetime.fromisoformat(date_to)
+                date_to_end = date_to_obj + timedelta(days=1)
+                query = query.filter(Analysis.created_at < date_to_end)
+            except ValueError:
+                app.logger.warning(f'Invalid date_to format: {date_to}')
+
+        # Get results
+        analyses = query.order_by(Analysis.created_at.desc()).all()
 
         return jsonify({
             'analyses': [{
@@ -732,6 +789,257 @@ def get_analyses(current_user, db):
     except Exception as e:
         app.logger.error(f'Failed to get analyses: {str(e)}')
         return jsonify({'error': 'An error occurred while retrieving analyses.'}), 500
+
+
+@app.route('/api/analyses/all', methods=['GET'])
+@token_required
+def get_all_analyses(current_user, db):
+    """Get all analyses from all users (shared view) with multi-field filtering"""
+    try:
+        # Get pagination parameters
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 50))
+
+        # Get filter parameters
+        session_name = request.args.get('session_name', '').strip()
+        owner = request.args.get('owner', '').strip()
+        zendesk_case = request.args.get('zendesk_case', '').strip()
+        filename = request.args.get('filename', '').strip()
+        analysis_id = request.args.get('analysis_id', '').strip()
+        status = request.args.get('status', '').strip()
+        parser_mode = request.args.get('parser_mode', '').strip()
+        date_from = request.args.get('date_from', '').strip()  # ISO format: 2025-10-01
+        date_to = request.args.get('date_to', '').strip()
+
+        # Base query: all non-deleted analyses with user relationship loaded
+        from sqlalchemy.orm import joinedload
+        from datetime import datetime
+
+        # Always join User and LogFile for potential filtering
+        query = db.query(Analysis).join(
+            User, Analysis.user_id == User.id
+        ).outerjoin(
+            LogFile, Analysis.log_file_id == LogFile.id
+        ).options(
+            joinedload(Analysis.user),
+            joinedload(Analysis.log_file)
+        ).filter(Analysis.is_deleted == False)
+
+        # Apply filters (AND logic - all filters must match)
+        if session_name:
+            query = query.filter(Analysis.session_name.ilike(f'%{session_name}%'))
+
+        if owner:
+            query = query.filter(User.username.ilike(f'%{owner}%'))
+
+        if zendesk_case:
+            query = query.filter(Analysis.zendesk_case.ilike(f'%{zendesk_case}%'))
+
+        if filename:
+            query = query.filter(LogFile.original_filename.ilike(f'%{filename}%'))
+
+        if analysis_id:
+            if analysis_id.isdigit():
+                query = query.filter(Analysis.id == int(analysis_id))
+            else:
+                # If not a number, search in session name as fallback
+                query = query.filter(Analysis.session_name.ilike(f'%{analysis_id}%'))
+
+        if status:
+            query = query.filter(Analysis.status == status.lower())
+
+        if parser_mode:
+            query = query.filter(Analysis.parse_mode == parser_mode)
+
+        if date_from:
+            try:
+                date_from_obj = datetime.fromisoformat(date_from)
+                query = query.filter(Analysis.created_at >= date_from_obj)
+            except ValueError:
+                app.logger.warning(f'Invalid date_from format: {date_from}')
+
+        if date_to:
+            try:
+                # Add 1 day to include the entire end date
+                date_to_obj = datetime.fromisoformat(date_to)
+                from datetime import timedelta
+                date_to_end = date_to_obj + timedelta(days=1)
+                query = query.filter(Analysis.created_at < date_to_end)
+            except ValueError:
+                app.logger.warning(f'Invalid date_to format: {date_to}')
+
+        # Get total count before pagination
+        total_count = query.count()
+
+        # Apply pagination
+        analyses = query.order_by(Analysis.created_at.desc())\
+            .offset((page - 1) * per_page)\
+            .limit(per_page)\
+            .all()
+
+        # Get current user's bookmarks
+        bookmarks = {b.analysis_id for b in db.query(Bookmark).filter(Bookmark.user_id == current_user.id).all()}
+
+        # Build response with user info
+        analyses_data = []
+        for a in analyses:
+            try:
+                analysis_data = {
+                    'id': a.id,
+                    'parse_mode': a.parse_mode,
+                    'session_name': a.session_name,
+                    'zendesk_case': a.zendesk_case,
+                    'filename': a.log_file.original_filename if a.log_file else None,
+                    'storage_type': a.log_file.storage_type if a.log_file else 'local',
+                    'status': a.status,
+                    'created_at': a.created_at.isoformat(),
+                    'completed_at': a.completed_at.isoformat() if a.completed_at else None,
+                    'processing_time_seconds': a.processing_time_seconds,
+                    'error_message': a.error_message,
+                    'is_drill_down': a.is_drill_down,
+                    'parent_analysis_id': a.parent_analysis_id,
+                    # Additional fields for shared view
+                    'owner_username': a.user.username if a.user else 'Unknown',
+                    'owner_id': a.user_id,
+                    'is_own': a.user_id == current_user.id,
+                    'is_bookmarked': a.id in bookmarks
+                }
+                analyses_data.append(analysis_data)
+            except Exception as item_error:
+                app.logger.error(f'Error serializing analysis {a.id}: {str(item_error)}')
+                continue
+
+        # Build active filters dict for logging and audit
+        active_filters = {k: v for k, v in {
+            'session_name': session_name, 'owner': owner, 'zendesk_case': zendesk_case,
+            'filename': filename, 'analysis_id': analysis_id, 'status': status,
+            'parser_mode': parser_mode, 'date_from': date_from, 'date_to': date_to
+        }.items() if v}
+
+        # Log filter usage if any filters active
+        if active_filters:
+            log_audit(db, current_user.id, 'filter_analyses', 'analysis', None, {
+                'filters': active_filters,
+                'results_count': total_count,
+                'page': page
+            })
+            app.logger.info(f'Returning {len(analyses_data)} analyses for /api/analyses/all (total: {total_count}, page: {page}, filters: {active_filters})')
+        else:
+            app.logger.info(f'Returning {len(analyses_data)} analyses for /api/analyses/all (total: {total_count}, page: {page}, no filters)')
+
+        return jsonify({
+            'analyses': analyses_data,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total_count,
+                'pages': (total_count + per_page - 1) // per_page
+            }
+        }), 200
+
+    except Exception as e:
+        app.logger.error(f'Failed to get all analyses: {str(e)}')
+        return jsonify({'error': 'An error occurred while retrieving analyses.'}), 500
+
+
+@app.route('/api/bookmarks', methods=['GET'])
+@token_required
+def get_bookmarks(current_user, db):
+    """Get current user's bookmarked analyses"""
+    try:
+        bookmarks = db.query(Bookmark).filter(
+            Bookmark.user_id == current_user.id
+        ).order_by(Bookmark.created_at.desc()).all()
+
+        return jsonify({
+            'bookmarks': [b.analysis_id for b in bookmarks]
+        }), 200
+
+    except Exception as e:
+        app.logger.error(f'Failed to get bookmarks: {str(e)}')
+        return jsonify({'error': 'An error occurred while retrieving bookmarks.'}), 500
+
+
+@app.route('/api/bookmarks/<int:analysis_id>', methods=['POST'])
+@token_required
+def add_bookmark(analysis_id, current_user, db):
+    """Add a bookmark for an analysis"""
+    try:
+        # Check if analysis exists
+        analysis = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+        if not analysis:
+            return jsonify({'error': 'Analysis not found'}), 404
+
+        # Check if already bookmarked
+        existing = db.query(Bookmark).filter(
+            Bookmark.user_id == current_user.id,
+            Bookmark.analysis_id == analysis_id
+        ).first()
+
+        if existing:
+            return jsonify({'message': 'Already bookmarked'}), 200
+
+        # Create bookmark
+        bookmark = Bookmark(
+            user_id=current_user.id,
+            analysis_id=analysis_id
+        )
+        db.add(bookmark)
+        db.commit()
+
+        # Log audit
+        log_audit(db, current_user.id, 'bookmark_analysis', 'analysis', analysis_id, {
+            'session_name': analysis.session_name,
+            'owner_username': analysis.user.username
+        })
+
+        return jsonify({
+            'success': True,
+            'message': 'Bookmark added successfully'
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        app.logger.error(f'Failed to add bookmark: {str(e)}')
+        return jsonify({'error': 'An error occurred while adding bookmark.'}), 500
+
+
+@app.route('/api/bookmarks/<int:analysis_id>', methods=['DELETE'])
+@token_required
+def remove_bookmark(analysis_id, current_user, db):
+    """Remove a bookmark"""
+    try:
+        # Find and delete bookmark
+        bookmark = db.query(Bookmark).filter(
+            Bookmark.user_id == current_user.id,
+            Bookmark.analysis_id == analysis_id
+        ).first()
+
+        if not bookmark:
+            return jsonify({'message': 'Bookmark not found'}), 404
+
+        # Get analysis info for audit log
+        analysis = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+
+        db.delete(bookmark)
+        db.commit()
+
+        # Log audit
+        if analysis:
+            log_audit(db, current_user.id, 'remove_bookmark', 'analysis', analysis_id, {
+                'session_name': analysis.session_name,
+                'owner_username': analysis.user.username
+            })
+
+        return jsonify({
+            'success': True,
+            'message': 'Bookmark removed successfully'
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        app.logger.error(f'Failed to remove bookmark: {str(e)}')
+        return jsonify({'error': 'An error occurred while removing bookmark.'}), 500
 
 
 def _parser_worker(result_queue, analysis_id, parse_mode, archive_path, timezone, begin_date, end_date):
@@ -1011,21 +1319,24 @@ def _process_drilldown_async(analysis_jobs, filepath, timezone, session_start, s
 @app.route('/api/analyses/<int:analysis_id>', methods=['GET'])
 @token_required
 def get_analysis(analysis_id, current_user, db):
-    """Get specific analysis with results"""
+    """Get specific analysis with results (any authenticated user can view)"""
     try:
-        # Get analysis (must belong to user unless admin)
-        query = db.query(Analysis).filter(Analysis.id == analysis_id)
-        if not current_user.is_admin():
-            query = query.filter(Analysis.user_id == current_user.id)
+        # Get analysis (any authenticated user can view)
+        analysis = db.query(Analysis).filter(
+            Analysis.id == analysis_id,
+            Analysis.is_deleted == False
+        ).first()
 
-        analysis = query.first()
         if not analysis:
             return jsonify({'error': 'Analysis not found'}), 404
 
-        # Log viewing analysis result
+        # Log viewing analysis result (include owner info if viewing others' analysis)
+        is_viewing_own = analysis.user_id == current_user.id
         log_audit(db, current_user.id, 'view_analysis', 'analysis', analysis_id, {
             'session_name': analysis.session_name,
-            'parse_mode': analysis.parse_mode
+            'parse_mode': analysis.parse_mode,
+            'is_viewing_own': is_viewing_own,
+            'owner_username': analysis.user.username if not is_viewing_own else None
         })
 
         # Get results

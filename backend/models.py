@@ -33,6 +33,7 @@ class User(Base):
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
     alert_rules = relationship("AlertRule", back_populates="user", cascade="all, delete-orphan")
+    bookmarks = relationship("Bookmark", back_populates="user", cascade="all, delete-orphan")
 
     def set_password(self, password):
         """Hash and set password"""
@@ -167,6 +168,7 @@ class Analysis(Base):
     log_file = relationship("LogFile", back_populates="analyses")
     parser = relationship("Parser", back_populates="analyses")
     results = relationship("AnalysisResult", back_populates="analysis", cascade="all, delete-orphan")
+    bookmarks = relationship("Bookmark", back_populates="analysis", cascade="all, delete-orphan")
 
     # Parent-child relationship for drill-down analyses
     parent_analysis = relationship("Analysis", remote_side=[id], backref="child_analyses")
@@ -333,6 +335,25 @@ class AlertRule(Base):
 
     # Relationships
     user = relationship("User", back_populates="alert_rules")
+
+
+class Bookmark(Base):
+    __tablename__ = 'bookmarks'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    analysis_id = Column(Integer, ForeignKey('analyses.id', ondelete='CASCADE'), nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    # Relationships
+    user = relationship("User", back_populates="bookmarks")
+    analysis = relationship("Analysis", back_populates="bookmarks")
+
+    # Unique constraint: one user can't bookmark the same analysis twice
+    __table_args__ = (
+        Index('idx_user_analysis_bookmark', 'user_id', 'analysis_id', unique=True),
+    )
 
 
 class S3Configuration(Base):
