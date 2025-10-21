@@ -259,7 +259,7 @@ function UploadPage() {
             'Content-Type': 'multipart/form-data',
           },
           signal: controller.signal,
-          timeout: 1800000  // 30 minutes timeout for large file processing
+          timeout: 0  // disable client-side timeout; rely on manual cancel
         });
         const processingTime = (Date.now() - startTime) / 1000;
 
@@ -287,6 +287,9 @@ function UploadPage() {
 
         const processingTime = 0;
         let errorMsg = err.response?.data?.error || 'An error occurred while processing';
+        if (err.code === 'ECONNABORTED') {
+          errorMsg = 'Processing is still running in the background. Please monitor Analysis History for results.';
+        }
 
         // Handle rate limiting specifically
         if (err.response?.status === 429) {

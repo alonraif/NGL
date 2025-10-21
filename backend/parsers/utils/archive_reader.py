@@ -4,13 +4,16 @@ from __future__ import annotations
 import bz2
 import gzip
 import io
+import logging
 import os
 import tarfile
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional, Sequence, Tuple
 
+
+logger = logging.getLogger(__name__)
 
 FFMPEG_MODES = {"ffmpeg", "ffmpegv", "ffmpega"}
 DEFAULT_LOG_BASENAME = "messages.log"
@@ -35,10 +38,18 @@ class ArchiveReader:
     from highest index to lowest, followed by the active log file.
     """
 
-    def __init__(self, archive_path: os.PathLike[str] | str, *, parse_mode: str = "known", encoding: str = "utf-8") -> None:
+    def __init__(
+        self,
+        archive_path: os.PathLike[str] | str,
+        *,
+        parse_mode: str = "known",
+        encoding: str = "utf-8",
+        fallback_encodings: Optional[Sequence[str]] = None,
+    ) -> None:
         self.archive_path = Path(archive_path)
         self.parse_mode = parse_mode
         self.encoding = encoding
+        self._candidate_encodings = self._build_encoding_list(fallback_encodings)
 
     def iter_lines(self) -> Iterator[LogLine]:
         """Yield log lines from the archive in the same order as ``lula2``.
@@ -65,9 +76,9 @@ class ArchiveReader:
                 extracted = tar.extractfile(member)
                 if extracted is None:
                     continue
-                with closing(self._open_text_stream(extracted, base_name)) as stream:
-                    for raw_line in stream:
-                        yield LogLine(base_name, raw_line.rstrip("\n"))
+                with closing(extracted):
+                    data = self._read_member_bytes(extracted, base_name)
+                yield from self._iter_lines_from_bytes(base_name, data)
 
     def _select_members(self, tar: tarfile.TarFile) -> List[tarfile.TarInfo]:
         root_name = self._log_basename()
@@ -99,9 +110,8 @@ class ArchiveReader:
     # ------------------------------------------------------------------
     def _iter_single_file(self) -> Iterator[LogLine]:
         base_name = self.archive_path.name
-        with closing(self._open_path(self.archive_path)) as stream:
-            for raw_line in stream:
-                yield LogLine(base_name, raw_line.rstrip("\n"))
+        data = self._read_path_bytes(self.archive_path)
+        yield from self._iter_lines_from_bytes(base_name, data)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -121,24 +131,56 @@ class ArchiveReader:
         except ValueError:
             return None
 
-    def _open_text_stream(self, fileobj, base_name: str) -> io.TextIOBase:
-        if base_name.endswith(".gz"):
-            gzip_file = gzip.GzipFile(fileobj=fileobj)
-            return io.TextIOWrapper(gzip_file, encoding=self.encoding)
-        if base_name.endswith(".bz2"):
-            # ``bz2`` module does not accept a fileobj in the same way as gzip,
-            # so we decompress eagerly and expose a ``StringIO`` view.
-            data = fileobj.read()
-            decompressed = bz2.decompress(data)
-            return io.StringIO(decompressed.decode(self.encoding))
-        return io.TextIOWrapper(fileobj, encoding=self.encoding)
+    def _build_encoding_list(self, fallback_encodings: Optional[Sequence[str]]) -> List[str]:
+        candidates = [self.encoding]
+        fallbacks = fallback_encodings if fallback_encodings is not None else ("cp1252", "latin-1")
+        for fallback in fallbacks:
+            if fallback and fallback not in candidates:
+                candidates.append(fallback)
+        return candidates
 
-    def _open_path(self, path: Path) -> io.TextIOBase:
+    def _iter_lines_from_bytes(self, base_name: str, data: bytes) -> Iterator[LogLine]:
+        text = self._decode_bytes(data, source=base_name)
+        for line in text.splitlines():
+            yield LogLine(base_name, line)
+
+    def _decode_bytes(self, data: bytes, *, source: Optional[str] = None) -> str:
+        last_exc: Optional[UnicodeDecodeError] = None
+        for idx, encoding in enumerate(self._candidate_encodings):
+            try:
+                text = data.decode(encoding)
+                if idx > 0 and source:
+                    logger.warning(
+                        "Decoded %s using fallback encoding %s (initial attempt with %s failed)",
+                        source,
+                        encoding,
+                        self._candidate_encodings[0],
+                    )
+                return text
+            except UnicodeDecodeError as exc:
+                last_exc = exc
+                continue
+        if last_exc is not None:
+            raise last_exc
+        return data.decode(self.encoding)
+
+    def _read_member_bytes(self, fileobj, base_name: str) -> bytes:
+        raw = fileobj.read()
+        if base_name.endswith(".gz"):
+            with gzip.GzipFile(fileobj=io.BytesIO(raw)) as gz:
+                return gz.read()
+        if base_name.endswith(".bz2"):
+            return bz2.decompress(raw)
+        return raw
+
+    def _read_path_bytes(self, path: Path) -> bytes:
         if path.suffix == ".gz":
-            return io.TextIOWrapper(gzip.open(path, mode="rb"), encoding=self.encoding)
+            with gzip.open(path, mode="rb") as gz:
+                return gz.read()
         if path.suffix == ".bz2":
-            return io.TextIOWrapper(bz2.open(path, mode="rb"), encoding=self.encoding)
-        return path.open("r", encoding=self.encoding)
+            with bz2.open(path, mode="rb") as bz_file:
+                return bz_file.read()
+        return path.read_bytes()
 
 
 __all__ = ["ArchiveReader", "LogLine"]

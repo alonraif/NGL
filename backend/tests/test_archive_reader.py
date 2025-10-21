@@ -68,6 +68,21 @@ class ArchiveReaderTests(unittest.TestCase):
             ]
             self.assertEqual(lines, expected)
 
+    def test_iter_lines_fallback_encoding(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            log_path = tmp_path / "messages.log"
+            log_path.write_bytes(b"alpha\nbeta\xacgamma\n")
+
+            reader = ArchiveReader(log_path, parse_mode="known")
+            lines = list(reader.iter_lines())
+
+            expected = [
+                LogLine("messages.log", "alpha"),
+                LogLine("messages.log", f"beta{chr(0xAC)}gamma"),
+            ]
+            self.assertEqual(lines, expected)
+
 
 if __name__ == "__main__":
     unittest.main()
