@@ -31,6 +31,7 @@ from rate_limiter import limiter
 from storage_service import StorageFactory
 from werkzeug.middleware.proxy_fix import ProxyFix
 import json
+from archive_filter import ArchiveFilter
 
 app = Flask(__name__)
 # Trust 2 proxies in the chain (e.g., CDN + nginx)
@@ -515,9 +516,38 @@ def upload_file(current_user, db):
                 active_parsers[parser_key] = parser
 
             try:
+                # Pre-filter archive by time range if dates are specified
+                filtered_filepath = filepath
+                if begin_date and end_date:
+                    try:
+                        app.logger.info(f"Pre-filtering archive by time range: {begin_date} to {end_date}")
+
+                        # Parse date strings to datetime objects
+                        # Assuming dates are in format: YYYY-MM-DD HH:MM:SS or similar
+                        from dateutil import parser as date_parser
+                        start_dt = date_parser.parse(begin_date)
+                        end_dt = date_parser.parse(end_date)
+
+                        # Apply archive filtering
+                        archive_filter = ArchiveFilter(filepath)
+                        filtered_filepath = archive_filter.filter_by_time_range(
+                            start_time=start_dt,
+                            end_time=end_dt,
+                            buffer_hours=1  # Keep 1 hour before/after for safety
+                        )
+
+                        if filtered_filepath != filepath:
+                            app.logger.info(f"Archive filtered successfully. Using: {filtered_filepath}")
+                        else:
+                            app.logger.info("Archive filtering skipped (not worth overhead)")
+
+                    except Exception as filter_error:
+                        app.logger.warning(f"Archive filtering failed: {filter_error}. Using original archive.")
+                        filtered_filepath = filepath
+
                 # Process the file using standalone parser (in-process, no subprocess)
                 result = parser.process(
-                    archive_path=filepath,
+                    archive_path=filtered_filepath,
                     timezone=timezone,
                     begin_date=begin_date if begin_date else None,
                     end_date=end_date if end_date else None
@@ -554,6 +584,14 @@ def upload_file(current_user, db):
                     app.logger.info(f"Cleaned up temporary file: {temp_filepath}")
                 except Exception as e:
                     app.logger.warning(f"Failed to clean up temp file {temp_filepath}: {str(e)}")
+
+            # Clean up filtered temp file if it was created
+            if filtered_filepath != filepath and os.path.exists(filtered_filepath):
+                try:
+                    os.remove(filtered_filepath)
+                    app.logger.info(f"Cleaned up filtered archive: {filtered_filepath}")
+                except Exception as e:
+                    app.logger.warning(f"Failed to clean up filtered archive {filtered_filepath}: {str(e)}")
 
             # Clean up user's current analysis from Redis
             user_analysis_key = f"user:{current_user.id}:current_analysis"
@@ -1045,14 +1083,53 @@ def remove_bookmark(analysis_id, current_user, db):
 def _parser_worker(result_queue, analysis_id, parse_mode, archive_path, timezone, begin_date, end_date):
     """Run a parser in a separate process and push the outcome to the parent."""
     job_start = time.time()
+    filtered_filepath = None
     try:
+        # Pre-filter archive by time range if dates are specified
+        filtered_archive_path = archive_path
+        if begin_date and end_date:
+            try:
+                app.logger.info(f"Worker {analysis_id}: Pre-filtering archive by time range: {begin_date} to {end_date}")
+
+                # Parse date strings to datetime objects
+                from dateutil import parser as date_parser
+                start_dt = date_parser.parse(begin_date)
+                end_dt = date_parser.parse(end_date)
+
+                # Apply archive filtering
+                archive_filter = ArchiveFilter(archive_path)
+                filtered_archive_path = archive_filter.filter_by_time_range(
+                    start_time=start_dt,
+                    end_time=end_dt,
+                    buffer_hours=1  # Keep 1 hour before/after for safety
+                )
+
+                if filtered_archive_path != archive_path:
+                    filtered_filepath = filtered_archive_path
+                    app.logger.info(f"Worker {analysis_id}: Archive filtered successfully. Using: {filtered_archive_path}")
+                else:
+                    app.logger.info(f"Worker {analysis_id}: Archive filtering skipped (not worth overhead)")
+
+            except Exception as filter_error:
+                app.logger.warning(f"Worker {analysis_id}: Archive filtering failed: {filter_error}. Using original archive.")
+                filtered_archive_path = archive_path
+
         parser = get_parser(parse_mode)
         result = parser.process(
-            archive_path=archive_path,
+            archive_path=filtered_archive_path,
             timezone=timezone,
             begin_date=begin_date,
             end_date=end_date
         )
+
+        # Clean up filtered temp file if it was created
+        if filtered_filepath and os.path.exists(filtered_filepath):
+            try:
+                os.remove(filtered_filepath)
+                app.logger.info(f"Worker {analysis_id}: Cleaned up filtered archive: {filtered_filepath}")
+            except Exception as e:
+                app.logger.warning(f"Worker {analysis_id}: Failed to clean up filtered archive: {e}")
+
         result_queue.put({
             'analysis_id': analysis_id,
             'parse_mode': parse_mode,
@@ -1061,6 +1138,13 @@ def _parser_worker(result_queue, analysis_id, parse_mode, archive_path, timezone
             'duration': time.time() - job_start
         })
     except CancellationException:
+        # Clean up filtered temp file on cancellation
+        if filtered_filepath and os.path.exists(filtered_filepath):
+            try:
+                os.remove(filtered_filepath)
+            except Exception:
+                pass
+
         result_queue.put({
             'analysis_id': analysis_id,
             'parse_mode': parse_mode,
@@ -1069,6 +1153,13 @@ def _parser_worker(result_queue, analysis_id, parse_mode, archive_path, timezone
             'duration': time.time() - job_start
         })
     except Exception as exc:
+        # Clean up filtered temp file on error
+        if filtered_filepath and os.path.exists(filtered_filepath):
+            try:
+                os.remove(filtered_filepath)
+            except Exception:
+                pass
+
         result_queue.put({
             'analysis_id': analysis_id,
             'parse_mode': parse_mode,
@@ -1376,14 +1467,53 @@ def get_analysis(analysis_id, current_user, db):
 def _parser_worker(result_queue, analysis_id, parse_mode, archive_path, timezone, begin_date, end_date):
     """Run a parser in a separate process and push the outcome to the parent."""
     job_start = time.time()
+    filtered_filepath = None
     try:
+        # Pre-filter archive by time range if dates are specified
+        filtered_archive_path = archive_path
+        if begin_date and end_date:
+            try:
+                app.logger.info(f"Worker {analysis_id}: Pre-filtering archive by time range: {begin_date} to {end_date}")
+
+                # Parse date strings to datetime objects
+                from dateutil import parser as date_parser
+                start_dt = date_parser.parse(begin_date)
+                end_dt = date_parser.parse(end_date)
+
+                # Apply archive filtering
+                archive_filter = ArchiveFilter(archive_path)
+                filtered_archive_path = archive_filter.filter_by_time_range(
+                    start_time=start_dt,
+                    end_time=end_dt,
+                    buffer_hours=1  # Keep 1 hour before/after for safety
+                )
+
+                if filtered_archive_path != archive_path:
+                    filtered_filepath = filtered_archive_path
+                    app.logger.info(f"Worker {analysis_id}: Archive filtered successfully. Using: {filtered_archive_path}")
+                else:
+                    app.logger.info(f"Worker {analysis_id}: Archive filtering skipped (not worth overhead)")
+
+            except Exception as filter_error:
+                app.logger.warning(f"Worker {analysis_id}: Archive filtering failed: {filter_error}. Using original archive.")
+                filtered_archive_path = archive_path
+
         parser = get_parser(parse_mode)
         result = parser.process(
-            archive_path=archive_path,
+            archive_path=filtered_archive_path,
             timezone=timezone,
             begin_date=begin_date,
             end_date=end_date
         )
+
+        # Clean up filtered temp file if it was created
+        if filtered_filepath and os.path.exists(filtered_filepath):
+            try:
+                os.remove(filtered_filepath)
+                app.logger.info(f"Worker {analysis_id}: Cleaned up filtered archive: {filtered_filepath}")
+            except Exception as e:
+                app.logger.warning(f"Worker {analysis_id}: Failed to clean up filtered archive: {e}")
+
         result_queue.put({
             'analysis_id': analysis_id,
             'parse_mode': parse_mode,
@@ -1392,6 +1522,13 @@ def _parser_worker(result_queue, analysis_id, parse_mode, archive_path, timezone
             'duration': time.time() - job_start
         })
     except CancellationException:
+        # Clean up filtered temp file on cancellation
+        if filtered_filepath and os.path.exists(filtered_filepath):
+            try:
+                os.remove(filtered_filepath)
+            except Exception:
+                pass
+
         result_queue.put({
             'analysis_id': analysis_id,
             'parse_mode': parse_mode,
@@ -1400,6 +1537,13 @@ def _parser_worker(result_queue, analysis_id, parse_mode, archive_path, timezone
             'duration': time.time() - job_start
         })
     except Exception as exc:
+        # Clean up filtered temp file on error
+        if filtered_filepath and os.path.exists(filtered_filepath):
+            try:
+                os.remove(filtered_filepath)
+            except Exception:
+                pass
+
         result_queue.put({
             'analysis_id': analysis_id,
             'parse_mode': parse_mode,
