@@ -67,6 +67,7 @@ services:
       - LE_LIVE_BASE=${LE_LIVE_BASE:-/etc/letsencrypt/live}
       - NGINX_RUNTIME_DIR=${NGINX_RUNTIME_DIR:-/etc/nginx/runtime}
       - UPLOAD_CERT_DIR=${UPLOAD_CERT_DIR:-/etc/nginx/ssl/uploaded}
+      - FORCE_DISABLE_HTTPS_ENFORCEMENT=${FORCE_DISABLE_HTTPS_ENFORCEMENT:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,6 +98,7 @@ services:
       - LE_LIVE_BASE=${LE_LIVE_BASE:-/etc/letsencrypt/live}
       - NGINX_RUNTIME_DIR=${NGINX_RUNTIME_DIR:-/etc/nginx/runtime}
       - UPLOAD_CERT_DIR=${UPLOAD_CERT_DIR:-/etc/nginx/ssl/uploaded}
+      - FORCE_DISABLE_HTTPS_ENFORCEMENT=${FORCE_DISABLE_HTTPS_ENFORCEMENT:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -125,6 +127,7 @@ services:
       - LE_LIVE_BASE=${LE_LIVE_BASE:-/etc/letsencrypt/live}
       - NGINX_RUNTIME_DIR=${NGINX_RUNTIME_DIR:-/etc/nginx/runtime}
       - UPLOAD_CERT_DIR=${UPLOAD_CERT_DIR:-/etc/nginx/ssl/uploaded}
+      - FORCE_DISABLE_HTTPS_ENFORCEMENT=${FORCE_DISABLE_HTTPS_ENFORCEMENT:-false}
     depends_on:
       postgres:
         condition: service_healthy

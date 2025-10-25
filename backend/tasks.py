@@ -16,10 +16,12 @@ from ssl_service import (
     get_lets_encrypt_live_paths,
     normalize_domains,
     read_certificate_metadata_from_path,
+    reload_nginx,
     run_certbot,
     verify_https_endpoint,
     write_enforce_redirect,
     write_http_redirect_snippet,
+    write_nginx_ssl_snippet,
 )
 
 
@@ -268,7 +270,16 @@ def issue_ssl_certificate(config_id: int, staging: Optional[bool] = None):
         ssl_config.updated_at = now
         db.commit()
 
-        logger.info('Certificate issued successfully for config_id=%s', config_id)
+        # Update Nginx configuration with new certificate paths
+        write_nginx_ssl_snippet(ssl_config.mode, paths['certificate_path'], paths['private_key_path'])
+
+        # Update HTTPS redirect based on current enforcement setting
+        write_http_redirect_snippet(ssl_config.enforce_https)
+
+        # Reload Nginx to apply changes
+        reload_nginx()
+
+        logger.info('Certificate issued successfully for config_id=%s, Nginx reloaded', config_id)
         return {
             'status': 'success',
             'expires_at': ssl_config.expires_at.isoformat() if ssl_config.expires_at else None,
@@ -351,7 +362,16 @@ def renew_ssl_certificate(config_id: int, force: bool = False):
         ssl_config.updated_at = now
         db.commit()
 
-        logger.info('Certificate renewed successfully (config_id=%s)', config_id)
+        # Update Nginx configuration with new certificate paths
+        write_nginx_ssl_snippet(ssl_config.mode, paths['certificate_path'], paths['private_key_path'])
+
+        # Update HTTPS redirect based on current enforcement setting
+        write_http_redirect_snippet(ssl_config.enforce_https)
+
+        # Reload Nginx to apply changes
+        reload_nginx()
+
+        logger.info('Certificate renewed successfully (config_id=%s), Nginx reloaded', config_id)
         return {'status': 'success', 'expires_at': ssl_config.expires_at.isoformat() if ssl_config.expires_at else None}
 
     except Exception as exc:
