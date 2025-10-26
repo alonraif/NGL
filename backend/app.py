@@ -741,7 +741,7 @@ def cancel_analysis(current_user, db):
 @app.route('/api/analyses', methods=['GET'])
 @token_required
 def get_analyses(current_user, db):
-    """Get user's analysis history with multi-field filtering"""
+    """Get user's analysis history with multi-field filtering (includes own analyses + bookmarked analyses)"""
     try:
         # Get filter parameters (same as /api/analyses/all)
         session_name = request.args.get('session_name', '').strip()
@@ -754,15 +754,25 @@ def get_analyses(current_user, db):
         date_to = request.args.get('date_to', '').strip()
 
         from sqlalchemy.orm import joinedload
+        from sqlalchemy import or_
         from datetime import datetime, timedelta
 
-        # Base query: user's own analyses (not deleted)
+        # Get bookmarked analysis IDs for this user
+        bookmarked_ids = db.query(Bookmark.analysis_id).filter(
+            Bookmark.user_id == current_user.id
+        ).all()
+        bookmarked_ids = [b[0] for b in bookmarked_ids]
+
+        # Base query: user's own analyses OR bookmarked analyses (not deleted)
         query = db.query(Analysis).outerjoin(
             LogFile, Analysis.log_file_id == LogFile.id
         ).options(
             joinedload(Analysis.log_file)
         ).filter(
-            Analysis.user_id == current_user.id,
+            or_(
+                Analysis.user_id == current_user.id,
+                Analysis.id.in_(bookmarked_ids) if bookmarked_ids else False
+            ),
             Analysis.is_deleted == False
         )
 
@@ -806,6 +816,7 @@ def get_analyses(current_user, db):
         # Get results
         analyses = query.order_by(Analysis.created_at.desc()).all()
 
+        # Build response with ownership and bookmark information
         return jsonify({
             'analyses': [{
                 'id': a.id,
@@ -820,7 +831,9 @@ def get_analyses(current_user, db):
                 'processing_time_seconds': a.processing_time_seconds,
                 'error_message': a.error_message,
                 'is_drill_down': a.is_drill_down,
-                'parent_analysis_id': a.parent_analysis_id
+                'parent_analysis_id': a.parent_analysis_id,
+                'is_own': a.user_id == current_user.id,
+                'owner_username': a.user.username if a.user else None
             } for a in analyses]
         }), 200
 

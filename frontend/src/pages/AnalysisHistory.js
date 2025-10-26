@@ -947,7 +947,7 @@ const AnalysisHistory = () => {
                   View your own analyses and analyses you've bookmarked from other users
                 </p>
               </div>
-              {renderAnalysisTable(myAnalyses, false)}
+              {renderAnalysisTable(myAnalyses, true)}
             </>
           ) : (
             <>
