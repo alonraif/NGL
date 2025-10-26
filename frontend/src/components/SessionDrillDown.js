@@ -7,22 +7,11 @@ import MemoryChart from './MemoryChart';
 import ModemGradingChart from './ModemGradingChart';
 import CpuChart from './CpuChart';
 
-const DRILL_DOWN_PARSERS = [
-  { value: 'bw', label: 'Bandwidth', hasVisualization: true },
-  { value: 'md-bw', label: 'Modem Bandwidth', hasVisualization: true },
-  { value: 'md-db-bw', label: 'Data Bridge BW', hasVisualization: true },
-  { value: 'md', label: 'Modem Stats', hasVisualization: true },
-  { value: 'memory', label: 'Memory Usage', hasVisualization: true },
-  { value: 'grading', label: 'Modem Grading', hasVisualization: true },
-  { value: 'cpu', label: 'CPU Usage', hasVisualization: true },
-  { value: 'known', label: 'Known Errors', hasVisualization: false },
-  { value: 'error', label: 'All Errors', hasVisualization: false },
-  { value: 'v', label: 'Verbose', hasVisualization: false },
-  { value: 'all', label: 'All Lines', hasVisualization: false },
-  { value: 'id', label: 'Device IDs', hasVisualization: false },
-];
+// Parsers with visualizations (used for rendering)
+const VISUALIZATION_PARSERS = ['bw', 'md-bw', 'md-db-bw', 'md', 'memory', 'grading', 'cpu'];
 
 function SessionDrillDown({ session, analysisData, savedResults, onResultsChange }) {
+  const [availableParsers, setAvailableParsers] = useState([]);
   const [selectedParsers, setSelectedParsers] = useState(new Set());
   const [endTime, setEndTime] = useState('');
   const [isRunning, setIsRunning] = useState(false);
@@ -30,10 +19,35 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
   const [error, setError] = useState('');
   const [expandedResults, setExpandedResults] = useState(new Set());
   const [parserStatuses, setParserStatuses] = useState({}); // Track status of each parser: queued, running, completed, failed
+  const [loadingParsers, setLoadingParsers] = useState(true);
   const pollingRef = useRef(null);
 
   const isComplete = session.type === 'complete';
   const needsEndTime = !isComplete && !session.end;
+
+  // Fetch available parsers from API
+  useEffect(() => {
+    const fetchParsers = async () => {
+      try {
+        const response = await axios.get('/api/parse-modes');
+        // Map parsers to include hasVisualization flag
+        const parsers = response.data.map(parser => ({
+          value: parser.value,
+          label: parser.label,
+          hasVisualization: VISUALIZATION_PARSERS.includes(parser.value)
+        }));
+        setAvailableParsers(parsers);
+      } catch (error) {
+        console.error('Failed to fetch parsers:', error);
+        // Fallback to empty list
+        setAvailableParsers([]);
+      } finally {
+        setLoadingParsers(false);
+      }
+    };
+
+    fetchParsers();
+  }, []);
 
   // Set end time from session if available
   useEffect(() => {
@@ -414,12 +428,17 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
         <strong style={{ color: textPrimary, display: 'block', marginBottom: '10px' }}>
           Select Parsers to Run:
         </strong>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-          gap: '10px'
-        }}>
-          {DRILL_DOWN_PARSERS.map(parser => (
+        {loadingParsers ? (
+          <div style={{ color: textSecondary, padding: '10px' }}>Loading parsers...</div>
+        ) : availableParsers.length === 0 ? (
+          <div style={{ color: 'var(--error)', padding: '10px' }}>No parsers available</div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+            gap: '10px'
+          }}>
+            {availableParsers.map(parser => (
             <label
               key={parser.value}
               style={{
@@ -443,7 +462,8 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
               <span style={{ color: textPrimary, fontSize: '0.9rem' }}>{parser.label}</span>
             </label>
           ))}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Error Message */}
@@ -516,7 +536,7 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
           {/* Parser Status List */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {Array.from(selectedParsers).map(parserValue => {
-              const parser = DRILL_DOWN_PARSERS.find(p => p.value === parserValue);
+              const parser = availableParsers.find(p => p.value === parserValue);
               const status = parserStatuses[parserValue]?.status || 'queued';
 
               let statusIcon = '⏳';
@@ -590,8 +610,8 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
           </h5>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
             {results.map((result, idx) => {
-              const parser = DRILL_DOWN_PARSERS.find(p => p.value === result.parse_mode);
-              const hasVisualization = parser?.hasVisualization;
+              const parser = availableParsers.find(p => p.value === result.parse_mode);
+              const hasVisualization = parser?.hasVisualization || VISUALIZATION_PARSERS.includes(result.parse_mode);
               const isExpanded = expandedResults.has(idx);
 
               return (
