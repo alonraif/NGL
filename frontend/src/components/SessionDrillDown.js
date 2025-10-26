@@ -31,11 +31,14 @@ function SessionDrillDown({ session, analysisData, savedResults, onResultsChange
       try {
         const response = await axios.get('/api/parse-modes');
         // Map parsers to include hasVisualization flag
-        const parsers = response.data.map(parser => ({
-          value: parser.value,
-          label: parser.label,
-          hasVisualization: VISUALIZATION_PARSERS.includes(parser.value)
-        }));
+        // Exclude 'sessions' parser since drill-down is already within a session
+        const parsers = response.data
+          .filter(parser => parser.value !== 'sessions')
+          .map(parser => ({
+            value: parser.value,
+            label: parser.label,
+            hasVisualization: VISUALIZATION_PARSERS.includes(parser.value)
+          }));
         setAvailableParsers(parsers);
       } catch (error) {
         console.error('Failed to fetch parsers:', error);
