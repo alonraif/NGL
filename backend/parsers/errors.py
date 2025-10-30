@@ -90,17 +90,25 @@ class ErrorParser(BaseParser):
                 match = timestamp_pattern.search(line)
                 if match:
                     try:
+                        from dateutil import parser as date_parser
+
                         # Combine date and time parts
                         timestamp_str = f"{match.group(1)} {match.group(2)}"
                         dt = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
 
                         if begin_date:
-                            begin_dt = datetime.strptime(begin_date, '%Y-%m-%d %H:%M:%S')
+                            # Use dateutil.parser for flexible parsing (handles microseconds, timezones)
+                            begin_dt = date_parser.parse(begin_date)
+                            if begin_dt.tzinfo is not None:
+                                begin_dt = begin_dt.replace(tzinfo=None)
                             if dt < begin_dt:
                                 continue
 
                         if end_date:
-                            end_dt = datetime.strptime(end_date, '%Y-%m-%d %H:%M:%S')
+                            # Use dateutil.parser for flexible parsing (handles microseconds, timezones)
+                            end_dt = date_parser.parse(end_date)
+                            if end_dt.tzinfo is not None:
+                                end_dt = end_dt.replace(tzinfo=None)
                             if dt > end_dt:
                                 continue
 

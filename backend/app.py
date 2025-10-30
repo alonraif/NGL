@@ -1110,11 +1110,13 @@ def _parser_worker(result_queue, analysis_id, parse_mode, archive_path, timezone
                 end_dt = date_parser.parse(end_date)
 
                 # Apply archive filtering
+                # Use 2-hour buffer to capture rotated log files (messages.log.1, .2, etc.)
+                # that may span the session time range
                 archive_filter = ArchiveFilter(archive_path)
                 filtered_archive_path = archive_filter.filter_by_time_range(
                     start_time=start_dt,
                     end_time=end_dt,
-                    buffer_hours=1  # Keep 1 hour before/after for safety
+                    buffer_hours=2
                 )
 
                 if filtered_archive_path != archive_path:
@@ -1494,11 +1496,13 @@ def _parser_worker(result_queue, analysis_id, parse_mode, archive_path, timezone
                 end_dt = date_parser.parse(end_date)
 
                 # Apply archive filtering
+                # Use 2-hour buffer to capture rotated log files (messages.log.1, .2, etc.)
+                # that may span the session time range
                 archive_filter = ArchiveFilter(archive_path)
                 filtered_archive_path = archive_filter.filter_by_time_range(
                     start_time=start_dt,
                     end_time=end_dt,
-                    buffer_hours=1  # Keep 1 hour before/after for safety
+                    buffer_hours=2
                 )
 
                 if filtered_archive_path != archive_path:

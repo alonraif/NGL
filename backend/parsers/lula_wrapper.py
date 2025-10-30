@@ -43,13 +43,53 @@ class LulaWrapperParser(BaseParser):
             analysis_id: Analysis ID for tracking (optional)
             redis_client: Redis client for storing PID (optional)
         """
+        # Normalize timestamps to remove microseconds (lula2.py doesn't handle them correctly)
+        from dateutil import parser as date_parser
+
+        normalized_begin_date = begin_date
+        normalized_end_date = end_date
+
+        if begin_date:
+            try:
+                dt = date_parser.parse(begin_date)
+                # Format: YYYY-MM-DD HH:MM:SS+TZ (no microseconds)
+                if dt.tzinfo:
+                    normalized_begin_date = dt.strftime('%Y-%m-%d %H:%M:%S%z')
+                    # Add colon in timezone offset (e.g., +00:00 instead of +0000)
+                    if len(normalized_begin_date) > 19:
+                        normalized_begin_date = normalized_begin_date[:-2] + ':' + normalized_begin_date[-2:]
+                else:
+                    normalized_begin_date = dt.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                pass  # Use original if parsing fails
+
+        if end_date:
+            try:
+                dt = date_parser.parse(end_date)
+                # Format: YYYY-MM-DD HH:MM:SS+TZ (no microseconds)
+                if dt.tzinfo:
+                    normalized_end_date = dt.strftime('%Y-%m-%d %H:%M:%S%z')
+                    # Add colon in timezone offset (e.g., +00:00 instead of +0000)
+                    if len(normalized_end_date) > 19:
+                        normalized_end_date = normalized_end_date[:-2] + ':' + normalized_end_date[-2:]
+                else:
+                    normalized_end_date = dt.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                pass  # Use original if parsing fails
+
         # Build lula2.py command with the archive file
         cmd = ['python3', '/app/lula2.py', archive_path, '-p', self.mode, '-t', timezone]
 
-        if begin_date:
-            cmd.extend(['-b', begin_date])
-        if end_date:
-            cmd.extend(['-e', end_date])
+        if normalized_begin_date:
+            cmd.extend(['-b', normalized_begin_date])
+        if normalized_end_date:
+            cmd.extend(['-e', normalized_end_date])
+
+        # Log the command for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        if begin_date != normalized_begin_date or end_date != normalized_end_date:
+            logger.info(f"Normalized timestamps for lula2.py: begin={normalized_begin_date}, end={normalized_end_date} (original: begin={begin_date}, end={end_date})")
 
         # Execute lula2.py using Popen to track PID
         process = subprocess.Popen(
@@ -114,7 +154,8 @@ class BandwidthParser(LulaWrapperParser):
 
     def process(self, archive_path, timezone='US/Eastern', begin_date=None, end_date=None, analysis_id=None, redis_client=None):
         """Override to store date filters for forward fill"""
-        # Store end_date for forward filling in bw mode
+        # Store original end_date for forward filling in bw mode
+        # The parent process() will normalize it for lula2.py, but we keep the original for parsing
         self.end_date = end_date
         self.timezone = timezone
         return super().process(archive_path, timezone, begin_date, end_date, analysis_id, redis_client)
@@ -299,7 +340,16 @@ class BandwidthParser(LulaWrapperParser):
             if 'Stream' not in last_point['notes']:
                 try:
                     last_time = datetime.strptime(last_point['datetime'], '%Y-%m-%d %H:%M:%S')
-                    end_time = datetime.strptime(self.end_date, '%Y-%m-%d %H:%M:%S')
+
+                    # Parse end_date using dateutil.parser for flexible parsing (handles microseconds, timezones)
+                    from dateutil import parser as date_parser
+                    end_time_parsed = date_parser.parse(self.end_date)
+
+                    # Remove timezone info if present (make naive for comparison with last_time)
+                    if end_time_parsed.tzinfo is not None:
+                        end_time_parsed = end_time_parsed.replace(tzinfo=None)
+
+                    end_time = end_time_parsed
 
                     gap_seconds = (end_time - last_time).total_seconds()
 

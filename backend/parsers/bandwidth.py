@@ -247,10 +247,18 @@ def _parse_stream_bandwidth(lines: List[str], end_date: Optional[str]):
 
     if filled_data and end_date:
         try:
+            from dateutil import parser as date_parser
+
             last_point = filled_data[-1]
             if 'Stream' not in last_point['notes']:
                 last_time = datetime.strptime(last_point['datetime'], '%Y-%m-%d %H:%M:%S')
-                end_time = datetime.strptime(end_date, '%Y-%m-%d %H:%M:%S')
+
+                # Use dateutil.parser for flexible parsing (handles microseconds, timezones)
+                end_time_parsed = date_parser.parse(end_date)
+                if end_time_parsed.tzinfo is not None:
+                    end_time_parsed = end_time_parsed.replace(tzinfo=None)
+                end_time = end_time_parsed
+
                 gap_seconds = (end_time - last_time).total_seconds()
 
                 if gap_seconds > fill_interval_seconds:
