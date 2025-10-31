@@ -343,6 +343,9 @@ function UploadPage() {
     'Europe/London',
     'Europe/Paris',
     'Asia/Tokyo',
+    'Asia/Singapore',
+    'Asia/Kolkata',
+    'Australia/Sydney',
   ];
 
   return (
