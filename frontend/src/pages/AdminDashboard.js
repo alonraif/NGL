@@ -114,6 +114,12 @@ const AdminDashboard = () => {
   const [dockerAvailable, setDockerAvailable] = useState(true);
   const [dockerError, setDockerError] = useState(null);
 
+  // Reports state
+  const [reportsData, setReportsData] = useState(null);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportsDays, setReportsDays] = useState(30);
+  const [reportsError, setReportsError] = useState(null);
+
   const fetchSslConfig = useCallback(async (showSpinner = true) => {
     try {
       if (showSpinner) {
@@ -223,6 +229,25 @@ const AdminDashboard = () => {
       console.error('Failed to fetch audit stats:', error);
     }
   }, []);
+
+  const fetchReports = useCallback(async () => {
+    try {
+      setReportsLoading(true);
+      setReportsError(null);
+      const response = await axios.get('/api/admin/reports', {
+        params: { days: reportsDays }
+      });
+      console.log('Reports data received:', response.data);
+      setReportsData(response.data);
+    } catch (error) {
+      console.error('Failed to fetch reports:', error);
+      console.error('Error response:', error.response?.data);
+      const errorMsg = error.response?.data?.error || error.message || 'Failed to load reports';
+      setReportsError(errorMsg);
+    } finally {
+      setReportsLoading(false);
+    }
+  }, [reportsDays]);
 
   const exportAuditLogs = async () => {
     try {
@@ -642,7 +667,10 @@ const AdminDashboard = () => {
       fetchAuditLogs();
       fetchAuditStats();
     }
-  }, [activeTab, fetchAnalyses, fetchAuditLogs, fetchAuditStats]);
+    if (activeTab === 'reports') {
+      fetchReports();
+    }
+  }, [activeTab, fetchAnalyses, fetchAuditLogs, fetchAuditStats, fetchReports]);
 
   useEffect(() => {
     if (activeTab === 'audit') {
@@ -809,6 +837,12 @@ const AdminDashboard = () => {
               onClick={() => setActiveTab('ssl')}
             >
               SSL
+            </button>
+            <button
+              className={`admin-tab ${activeTab === 'reports' ? 'active' : ''}`}
+              onClick={() => setActiveTab('reports')}
+            >
+              Reports
             </button>
             <button
               className={`admin-tab ${activeTab === 'audit' ? 'active' : ''}`}
@@ -2419,6 +2453,968 @@ const AdminDashboard = () => {
                 )}
               </div>
 
+            </div>
+          )}
+
+          {activeTab === 'reports' && (
+            <div className="admin-content">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div>
+                  <h2 style={{ margin: 0 }}>System Usage Reports</h2>
+                  <p style={{ margin: '4px 0 0 0', color: theme.textSecondary, fontSize: '14px' }}>
+                    Comprehensive analytics and usage statistics
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <label style={{ fontSize: '14px', color: theme.textSecondary }}>Time Range:</label>
+                  <select
+                    value={reportsDays}
+                    onChange={(e) => setReportsDays(parseInt(e.target.value))}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      border: `1px solid ${theme.border}`,
+                      background: theme.bgSecondary,
+                      color: theme.textPrimary,
+                      fontSize: '14px'
+                    }}
+                  >
+                    <option value="7">Last 7 days</option>
+                    <option value="30">Last 30 days</option>
+                    <option value="60">Last 60 days</option>
+                    <option value="90">Last 90 days</option>
+                    <option value="180">Last 180 days</option>
+                    <option value="365">Last year</option>
+                  </select>
+                  <button
+                    className="btn btn-primary"
+                    onClick={fetchReports}
+                    disabled={reportsLoading}
+                    style={{ fontSize: '14px' }}
+                  >
+                    {reportsLoading ? 'Loading...' : 'Refresh'}
+                  </button>
+                </div>
+              </div>
+
+              {reportsLoading && (
+                <div style={{ textAlign: 'center', padding: '40px', color: theme.textSecondary }}>
+                  <div style={{ fontSize: '18px', marginBottom: '8px' }}>Loading reports...</div>
+                  <div style={{ fontSize: '14px', color: theme.textTertiary }}>Analyzing audit logs and system data</div>
+                </div>
+              )}
+
+              {reportsError && (
+                <div style={{
+                  padding: '40px',
+                  textAlign: 'center',
+                  background: theme.errorBg,
+                  border: `1px solid ${theme.error}`,
+                  borderRadius: '8px',
+                  color: theme.error
+                }}>
+                  <div style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Failed to Load Reports</div>
+                  <div style={{ fontSize: '14px', color: theme.textSecondary }}>{reportsError}</div>
+                  <button
+                    className="btn btn-primary"
+                    onClick={fetchReports}
+                    style={{ marginTop: '16px' }}
+                  >
+                    Try Again
+                  </button>
+                </div>
+              )}
+
+              {!reportsLoading && !reportsError && !reportsData && (
+                <div style={{
+                  padding: '60px 40px',
+                  textAlign: 'center',
+                  background: theme.bgSecondary,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: '8px'
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>📊</div>
+                  <div style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px', color: theme.textPrimary }}>
+                    No Data Available
+                  </div>
+                  <div style={{ fontSize: '14px', color: theme.textSecondary, maxWidth: '400px', margin: '0 auto' }}>
+                    There's no activity data for the selected time range. Try selecting a longer time period or upload some log files to generate reports.
+                  </div>
+                </div>
+              )}
+
+              {!reportsLoading && !reportsError && reportsData && (
+                <>
+                  {/* Key Metrics Overview */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                    <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '32px', fontWeight: '700', color: theme.brandPrimary }}>
+                        {reportsData.active_users_count || 0}
+                      </div>
+                      <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>Active Users</div>
+                    </div>
+                    <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '32px', fontWeight: '700', color: theme.success }}>
+                        {reportsData.analysis_activity.reduce((sum, u) => sum + u.analysis_count, 0)}
+                      </div>
+                      <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>Total Analyses</div>
+                    </div>
+                    <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '32px', fontWeight: '700', color: theme.info }}>
+                        {reportsData.login_activity.reduce((sum, u) => sum + u.login_count, 0)}
+                      </div>
+                      <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>Total Logins</div>
+                    </div>
+                    <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '32px', fontWeight: '700', color: theme.warning }}>
+                        {reportsData.processing_stats.avg_seconds}s
+                      </div>
+                      <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>Avg Processing Time</div>
+                    </div>
+                  </div>
+
+                  {/* Top Users */}
+                  <div className="card" style={{ marginBottom: '24px', padding: '20px' }}>
+                    <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Top Users by Activity</h3>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: `2px solid ${theme.border}` }}>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Username</th>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Role</th>
+                            <th style={{ padding: '12px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Analyses</th>
+                            <th style={{ padding: '12px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Logins</th>
+                            <th style={{ padding: '12px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: theme.textSecondary }}>Storage Used (MB)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reportsData.top_users.map((user, idx) => (
+                            <tr key={user.user_id} style={{ borderBottom: `1px solid ${theme.border}` }}>
+                              <td style={{ padding: '12px', fontSize: '14px' }}>{user.username}</td>
+                              <td style={{ padding: '12px', fontSize: '14px' }}>
+                                <span style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  background: user.role === 'admin' ? theme.brandPrimary : theme.bgTertiary,
+                                  color: user.role === 'admin' ? '#fff' : theme.textPrimary
+                                }}>
+                                  {user.role}
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600' }}>
+                                {user.total_analyses}
+                              </td>
+                              <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px' }}>
+                                {user.total_logins}
+                              </td>
+                              <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px' }}>
+                                {user.storage_used_mb.toFixed(1)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Activity Timeline Charts */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                    {/* Logins Timeline */}
+                    <div className="card" style={{ padding: '20px' }}>
+                      <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Login Activity Over Time</h3>
+                      {reportsData.logins_timeline && reportsData.logins_timeline.length > 0 ? (
+                        <div style={{ height: '300px', width: '100%' }}>
+                          <svg width="100%" height="100%" viewBox="0 0 500 300" preserveAspectRatio="xMidYMid meet">
+                            {(() => {
+                              const data = reportsData.logins_timeline;
+                              const maxCount = Math.max(...data.map(d => d.count), 1);
+                              const padding = { top: 20, right: 20, bottom: 40, left: 50 };
+                              const chartWidth = 500 - padding.left - padding.right;
+                              const chartHeight = 300 - padding.top - padding.bottom;
+                              const barWidth = chartWidth / data.length;
+
+                              return (
+                                <g>
+                                  {/* Y-axis grid lines */}
+                                  {[0, 0.25, 0.5, 0.75, 1].map(tick => (
+                                    <g key={tick}>
+                                      <line
+                                        x1={padding.left}
+                                        y1={padding.top + chartHeight * (1 - tick)}
+                                        x2={padding.left + chartWidth}
+                                        y2={padding.top + chartHeight * (1 - tick)}
+                                        stroke={theme.border}
+                                        strokeWidth="1"
+                                        opacity="0.3"
+                                      />
+                                      <text
+                                        x={padding.left - 10}
+                                        y={padding.top + chartHeight * (1 - tick)}
+                                        textAnchor="end"
+                                        alignmentBaseline="middle"
+                                        fill={theme.textSecondary}
+                                        fontSize="10"
+                                      >
+                                        {Math.round(maxCount * tick)}
+                                      </text>
+                                    </g>
+                                  ))}
+
+                                  {/* Bars */}
+                                  {data.map((d, i) => {
+                                    const barHeight = (d.count / maxCount) * chartHeight;
+                                    const x = padding.left + i * barWidth;
+                                    const y = padding.top + chartHeight - barHeight;
+
+                                    return (
+                                      <g key={i}>
+                                        <rect
+                                          x={x + 2}
+                                          y={y}
+                                          width={barWidth - 4}
+                                          height={barHeight}
+                                          fill={theme.brandPrimary}
+                                          opacity="0.8"
+                                        />
+                                        {i % Math.ceil(data.length / 7) === 0 && (
+                                          <text
+                                            x={x + barWidth / 2}
+                                            y={padding.top + chartHeight + 15}
+                                            textAnchor="middle"
+                                            fill={theme.textSecondary}
+                                            fontSize="9"
+                                          >
+                                            {new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                          </text>
+                                        )}
+                                      </g>
+                                    );
+                                  })}
+                                </g>
+                              );
+                            })()}
+                          </svg>
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '40px', color: theme.textSecondary }}>
+                          No login data available
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Analyses Timeline */}
+                    <div className="card" style={{ padding: '20px' }}>
+                      <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Analysis Activity Over Time</h3>
+                      {reportsData.analyses_timeline && reportsData.analyses_timeline.length > 0 ? (
+                        <div style={{ height: '300px', width: '100%' }}>
+                          <svg width="100%" height="100%" viewBox="0 0 500 300" preserveAspectRatio="xMidYMid meet">
+                            {(() => {
+                              const data = reportsData.analyses_timeline;
+                              const maxCount = Math.max(...data.map(d => d.count), 1);
+                              const padding = { top: 20, right: 20, bottom: 40, left: 50 };
+                              const chartWidth = 500 - padding.left - padding.right;
+                              const chartHeight = 300 - padding.top - padding.bottom;
+                              const barWidth = chartWidth / data.length;
+
+                              return (
+                                <g>
+                                  {/* Y-axis grid lines */}
+                                  {[0, 0.25, 0.5, 0.75, 1].map(tick => (
+                                    <g key={tick}>
+                                      <line
+                                        x1={padding.left}
+                                        y1={padding.top + chartHeight * (1 - tick)}
+                                        x2={padding.left + chartWidth}
+                                        y2={padding.top + chartHeight * (1 - tick)}
+                                        stroke={theme.border}
+                                        strokeWidth="1"
+                                        opacity="0.3"
+                                      />
+                                      <text
+                                        x={padding.left - 10}
+                                        y={padding.top + chartHeight * (1 - tick)}
+                                        textAnchor="end"
+                                        alignmentBaseline="middle"
+                                        fill={theme.textSecondary}
+                                        fontSize="10"
+                                      >
+                                        {Math.round(maxCount * tick)}
+                                      </text>
+                                    </g>
+                                  ))}
+
+                                  {/* Bars */}
+                                  {data.map((d, i) => {
+                                    const barHeight = (d.count / maxCount) * chartHeight;
+                                    const x = padding.left + i * barWidth;
+                                    const y = padding.top + chartHeight - barHeight;
+
+                                    return (
+                                      <g key={i}>
+                                        <rect
+                                          x={x + 2}
+                                          y={y}
+                                          width={barWidth - 4}
+                                          height={barHeight}
+                                          fill={theme.success}
+                                          opacity="0.8"
+                                        />
+                                        {i % Math.ceil(data.length / 7) === 0 && (
+                                          <text
+                                            x={x + barWidth / 2}
+                                            y={padding.top + chartHeight + 15}
+                                            textAnchor="middle"
+                                            fill={theme.textSecondary}
+                                            fontSize="9"
+                                          >
+                                            {new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                          </text>
+                                        )}
+                                      </g>
+                                    );
+                                  })}
+                                </g>
+                              );
+                            })()}
+                          </svg>
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '40px', color: theme.textSecondary }}>
+                          No analysis data available
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Parse Mode Usage & Hourly Distribution */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                    {/* Parse Mode Usage */}
+                    <div className="card" style={{ padding: '20px' }}>
+                      <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Parse Mode Usage</h3>
+                      {reportsData.parse_mode_usage && reportsData.parse_mode_usage.length > 0 ? (
+                        <div style={{ overflowY: 'auto', maxHeight: '300px' }}>
+                          {reportsData.parse_mode_usage.map((mode, idx) => {
+                            const maxUsage = reportsData.parse_mode_usage[0].usage_count;
+                            const percentage = (mode.usage_count / maxUsage) * 100;
+                            return (
+                              <div key={idx} style={{ marginBottom: '16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                  <span style={{ fontSize: '14px', fontWeight: '500' }}>{mode.parse_mode}</span>
+                                  <span style={{ fontSize: '14px', fontWeight: '600', color: theme.brandPrimary }}>
+                                    {mode.usage_count}
+                                  </span>
+                                </div>
+                                <div style={{
+                                  width: '100%',
+                                  height: '8px',
+                                  background: theme.bgTertiary,
+                                  borderRadius: '4px',
+                                  overflow: 'hidden'
+                                }}>
+                                  <div style={{
+                                    width: `${percentage}%`,
+                                    height: '100%',
+                                    background: `linear-gradient(90deg, ${theme.brandPrimary}, ${theme.brandPrimaryHover})`,
+                                    transition: 'width 0.3s ease'
+                                  }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '40px', color: theme.textSecondary }}>
+                          No parse mode data available
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Hourly Activity Distribution */}
+                    <div className="card" style={{ padding: '20px' }}>
+                      <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Activity by Hour of Day</h3>
+                      {reportsData.hourly_distribution && reportsData.hourly_distribution.length > 0 ? (
+                        <div style={{ height: '300px', width: '100%' }}>
+                          <svg width="100%" height="100%" viewBox="0 0 500 300" preserveAspectRatio="xMidYMid meet">
+                            {(() => {
+                              // Create array with all 24 hours
+                              const hourData = Array.from({ length: 24 }, (_, hour) => {
+                                const found = reportsData.hourly_distribution.find(h => h.hour === hour);
+                                return { hour, activity_count: found ? found.activity_count : 0 };
+                              });
+                              const maxCount = Math.max(...hourData.map(d => d.activity_count), 1);
+                              const padding = { top: 20, right: 20, bottom: 40, left: 50 };
+                              const chartWidth = 500 - padding.left - padding.right;
+                              const chartHeight = 300 - padding.top - padding.bottom;
+                              const barWidth = chartWidth / 24;
+
+                              return (
+                                <g>
+                                  {/* Y-axis grid lines */}
+                                  {[0, 0.25, 0.5, 0.75, 1].map(tick => (
+                                    <g key={tick}>
+                                      <line
+                                        x1={padding.left}
+                                        y1={padding.top + chartHeight * (1 - tick)}
+                                        x2={padding.left + chartWidth}
+                                        y2={padding.top + chartHeight * (1 - tick)}
+                                        stroke={theme.border}
+                                        strokeWidth="1"
+                                        opacity="0.3"
+                                      />
+                                      <text
+                                        x={padding.left - 10}
+                                        y={padding.top + chartHeight * (1 - tick)}
+                                        textAnchor="end"
+                                        alignmentBaseline="middle"
+                                        fill={theme.textSecondary}
+                                        fontSize="10"
+                                      >
+                                        {Math.round(maxCount * tick)}
+                                      </text>
+                                    </g>
+                                  ))}
+
+                                  {/* Bars */}
+                                  {hourData.map((d, i) => {
+                                    const barHeight = (d.activity_count / maxCount) * chartHeight;
+                                    const x = padding.left + i * barWidth;
+                                    const y = padding.top + chartHeight - barHeight;
+
+                                    return (
+                                      <g key={i}>
+                                        <rect
+                                          x={x + 1}
+                                          y={y}
+                                          width={barWidth - 2}
+                                          height={barHeight}
+                                          fill={theme.info}
+                                          opacity="0.8"
+                                        />
+                                        {i % 3 === 0 && (
+                                          <text
+                                            x={x + barWidth / 2}
+                                            y={padding.top + chartHeight + 15}
+                                            textAnchor="middle"
+                                            fill={theme.textSecondary}
+                                            fontSize="9"
+                                          >
+                                            {d.hour}h
+                                          </text>
+                                        )}
+                                      </g>
+                                    );
+                                  })}
+                                </g>
+                              );
+                            })()}
+                          </svg>
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '40px', color: theme.textSecondary }}>
+                          No hourly data available
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* User-specific metrics */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                    {/* Login Activity per User */}
+                    <div className="card" style={{ padding: '20px' }}>
+                      <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Logins per User</h3>
+                      <div style={{ overflowY: 'auto', maxHeight: '300px' }}>
+                        {reportsData.login_activity
+                          .filter(u => u.login_count > 0)
+                          .sort((a, b) => b.login_count - a.login_count)
+                          .map((user, idx) => {
+                            const maxLogins = Math.max(...reportsData.login_activity.map(u => u.login_count));
+                            const percentage = (user.login_count / maxLogins) * 100;
+                            return (
+                              <div key={idx} style={{ marginBottom: '16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                  <span style={{ fontSize: '14px', fontWeight: '500' }}>{user.username}</span>
+                                  <span style={{ fontSize: '14px', fontWeight: '600', color: theme.info }}>
+                                    {user.login_count}
+                                  </span>
+                                </div>
+                                <div style={{
+                                  width: '100%',
+                                  height: '8px',
+                                  background: theme.bgTertiary,
+                                  borderRadius: '4px',
+                                  overflow: 'hidden'
+                                }}>
+                                  <div style={{
+                                    width: `${percentage}%`,
+                                    height: '100%',
+                                    background: theme.info,
+                                    transition: 'width 0.3s ease'
+                                  }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+
+                    {/* Analysis Activity per User */}
+                    <div className="card" style={{ padding: '20px' }}>
+                      <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Analyses per User</h3>
+                      <div style={{ overflowY: 'auto', maxHeight: '300px' }}>
+                        {reportsData.analysis_activity
+                          .filter(u => u.analysis_count > 0)
+                          .sort((a, b) => b.analysis_count - a.analysis_count)
+                          .map((user, idx) => {
+                            const maxAnalyses = Math.max(...reportsData.analysis_activity.map(u => u.analysis_count));
+                            const percentage = (user.analysis_count / maxAnalyses) * 100;
+                            return (
+                              <div key={idx} style={{ marginBottom: '16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                  <span style={{ fontSize: '14px', fontWeight: '500' }}>{user.username}</span>
+                                  <span style={{ fontSize: '14px', fontWeight: '600', color: theme.success }}>
+                                    {user.analysis_count}
+                                  </span>
+                                </div>
+                                <div style={{
+                                  width: '100%',
+                                  height: '8px',
+                                  background: theme.bgTertiary,
+                                  borderRadius: '4px',
+                                  overflow: 'hidden'
+                                }}>
+                                  <div style={{
+                                    width: `${percentage}%`,
+                                    height: '100%',
+                                    background: theme.success,
+                                    transition: 'width 0.3s ease'
+                                  }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Storage Usage & Analysis Status */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px' }}>
+                    {/* Storage Usage */}
+                    <div className="card" style={{ padding: '20px' }}>
+                      <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Storage Usage per User</h3>
+                      <div style={{ overflowY: 'auto', maxHeight: '300px' }}>
+                        {reportsData.storage_usage
+                          .filter(u => u.storage_used_mb > 0)
+                          .sort((a, b) => b.storage_used_mb - a.storage_used_mb)
+                          .map((user, idx) => (
+                            <div key={idx} style={{ marginBottom: '16px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                <span style={{ fontSize: '14px', fontWeight: '500' }}>{user.username}</span>
+                                <span style={{ fontSize: '13px', color: theme.textSecondary }}>
+                                  {user.storage_used_mb.toFixed(1)} / {user.storage_quota_mb} MB ({user.storage_percent}%)
+                                </span>
+                              </div>
+                              <div style={{
+                                width: '100%',
+                                height: '8px',
+                                background: theme.bgTertiary,
+                                borderRadius: '4px',
+                                overflow: 'hidden'
+                              }}>
+                                <div style={{
+                                  width: `${Math.min(user.storage_percent, 100)}%`,
+                                  height: '100%',
+                                  background: user.storage_percent > 90 ? theme.error : user.storage_percent > 70 ? theme.warning : theme.success,
+                                  transition: 'width 0.3s ease'
+                                }} />
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+
+                    {/* Analysis Status Breakdown */}
+                    <div className="card" style={{ padding: '20px' }}>
+                      <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Analysis Status Breakdown</h3>
+                      {reportsData.status_breakdown && reportsData.status_breakdown.length > 0 ? (
+                        <div style={{ marginTop: '20px' }}>
+                          {reportsData.status_breakdown.map((status, idx) => {
+                            const total = reportsData.status_breakdown.reduce((sum, s) => sum + s.count, 0);
+                            const percentage = (status.count / total) * 100;
+                            const statusColors = {
+                              completed: theme.success,
+                              failed: theme.error,
+                              pending: theme.warning,
+                              running: theme.info
+                            };
+                            return (
+                              <div key={idx} style={{ marginBottom: '16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                  <span style={{ fontSize: '14px', fontWeight: '500', textTransform: 'capitalize' }}>
+                                    {status.status}
+                                  </span>
+                                  <span style={{ fontSize: '14px', fontWeight: '600', color: statusColors[status.status] || theme.textPrimary }}>
+                                    {status.count} ({percentage.toFixed(1)}%)
+                                  </span>
+                                </div>
+                                <div style={{
+                                  width: '100%',
+                                  height: '8px',
+                                  background: theme.bgTertiary,
+                                  borderRadius: '4px',
+                                  overflow: 'hidden'
+                                }}>
+                                  <div style={{
+                                    width: `${percentage}%`,
+                                    height: '100%',
+                                    background: statusColors[status.status] || theme.textPrimary,
+                                    transition: 'width 0.3s ease'
+                                  }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '40px', color: theme.textSecondary }}>
+                          No status data available
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* NEW AUDIT LOG BASED REPORTS */}
+
+                  {/* Action Type Breakdown & Failed Actions */}
+                  {reportsData.action_breakdown && reportsData.action_breakdown.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                      {/* Action Types */}
+                      <div className="card" style={{ padding: '20px' }}>
+                        <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Action Type Distribution</h3>
+                        <div style={{ overflowY: 'auto', maxHeight: '300px' }}>
+                          {reportsData.action_breakdown.slice(0, 10).map((action, idx) => {
+                            const maxCount = reportsData.action_breakdown[0].count;
+                            const percentage = (action.count / maxCount) * 100;
+                            return (
+                              <div key={idx} style={{ marginBottom: '16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                  <span style={{ fontSize: '14px', fontWeight: '500' }}>{action.action}</span>
+                                  <span style={{ fontSize: '14px', fontWeight: '600', color: theme.brandPrimary }}>
+                                    {action.count}
+                                  </span>
+                                </div>
+                                <div style={{
+                                  width: '100%',
+                                  height: '8px',
+                                  background: theme.bgTertiary,
+                                  borderRadius: '4px',
+                                  overflow: 'hidden'
+                                }}>
+                                  <div style={{
+                                    width: `${percentage}%`,
+                                    height: '100%',
+                                    background: theme.brandPrimary,
+                                    transition: 'width 0.3s ease'
+                                  }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Failed Actions */}
+                      <div className="card" style={{ padding: '20px' }}>
+                        <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Failed Actions</h3>
+                        {reportsData.failed_actions && reportsData.failed_actions.length > 0 ? (
+                          <div style={{ overflowY: 'auto', maxHeight: '300px' }}>
+                            {reportsData.failed_actions.map((action, idx) => {
+                              const maxCount = reportsData.failed_actions[0]?.count || 1;
+                              const percentage = (action.count / maxCount) * 100;
+                              return (
+                                <div key={idx} style={{ marginBottom: '16px' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                    <span style={{ fontSize: '14px', fontWeight: '500' }}>{action.action}</span>
+                                    <span style={{ fontSize: '14px', fontWeight: '600', color: theme.error }}>
+                                      {action.count}
+                                    </span>
+                                  </div>
+                                  <div style={{
+                                    width: '100%',
+                                    height: '8px',
+                                    background: theme.bgTertiary,
+                                    borderRadius: '4px',
+                                    overflow: 'hidden'
+                                  }}>
+                                    <div style={{
+                                      width: `${percentage}%`,
+                                      height: '100%',
+                                      background: theme.error,
+                                      transition: 'width 0.3s ease'
+                                    }} />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div style={{ textAlign: 'center', padding: '40px', color: theme.textSecondary }}>
+                            No failed actions - Excellent!
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Browser Stats & Success Rate */}
+                  {reportsData.browser_stats && reportsData.browser_stats.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                      {/* Browser Distribution */}
+                      <div className="card" style={{ padding: '20px' }}>
+                        <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Browser Distribution</h3>
+                        <div style={{ height: '300px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                          {reportsData.browser_stats.map((browser, idx) => {
+                            const total = reportsData.browser_stats.reduce((sum, b) => sum + b.count, 0);
+                            const percentage = (browser.count / total) * 100;
+                            const browserColors = {
+                              'Chrome': '#4285F4',
+                              'Firefox': '#FF7139',
+                              'Safari': '#0088CC',
+                              'Edge': '#0078D7',
+                              'Opera': '#FF1B2D',
+                              'Other': theme.textSecondary
+                            };
+                            return (
+                              <div key={idx} style={{ marginBottom: '16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                  <span style={{ fontSize: '14px', fontWeight: '500' }}>{browser.browser}</span>
+                                  <span style={{ fontSize: '14px', fontWeight: '600', color: browserColors[browser.browser] || theme.textPrimary }}>
+                                    {browser.count} ({percentage.toFixed(1)}%)
+                                  </span>
+                                </div>
+                                <div style={{
+                                  width: '100%',
+                                  height: '12px',
+                                  background: theme.bgTertiary,
+                                  borderRadius: '6px',
+                                  overflow: 'hidden'
+                                }}>
+                                  <div style={{
+                                    width: `${percentage}%`,
+                                    height: '100%',
+                                    background: browserColors[browser.browser] || theme.textPrimary,
+                                    transition: 'width 0.3s ease'
+                                  }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Success vs Failure Rate */}
+                      <div className="card" style={{ padding: '20px' }}>
+                        <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Success vs Failure Rate</h3>
+                        {reportsData.success_rate && reportsData.success_rate.length > 0 ? (
+                          <div style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ width: '100%', maxWidth: '300px' }}>
+                              {reportsData.success_rate.map((item, idx) => {
+                                const total = reportsData.success_rate.reduce((sum, s) => sum + s.count, 0);
+                                const percentage = (item.count / total) * 100;
+                                return (
+                                  <div key={idx} style={{ marginBottom: '24px' }}>
+                                    <div style={{ textAlign: 'center', marginBottom: '12px' }}>
+                                      <div style={{
+                                        fontSize: '48px',
+                                        fontWeight: '700',
+                                        color: item.success ? theme.success : theme.error
+                                      }}>
+                                        {percentage.toFixed(1)}%
+                                      </div>
+                                      <div style={{
+                                        fontSize: '16px',
+                                        color: theme.textSecondary,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '1px'
+                                      }}>
+                                        {item.success ? 'Success' : 'Failed'}
+                                      </div>
+                                      <div style={{
+                                        fontSize: '14px',
+                                        color: theme.textTertiary,
+                                        marginTop: '4px'
+                                      }}>
+                                        {item.count.toLocaleString()} actions
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ textAlign: 'center', padding: '40px', color: theme.textSecondary }}>
+                            No data available
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Top IP Addresses & Most Active Users (by actions) */}
+                  {(reportsData.top_ips?.length > 0 || reportsData.most_active_users?.length > 0) && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                      {/* Top IP Addresses */}
+                      {reportsData.top_ips && reportsData.top_ips.length > 0 && (
+                        <div className="card" style={{ padding: '20px' }}>
+                          <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Top IP Addresses</h3>
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                              <thead>
+                                <tr style={{ borderBottom: `2px solid ${theme.border}` }}>
+                                  <th style={{ padding: '8px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: theme.textSecondary }}>IP Address</th>
+                                  <th style={{ padding: '8px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: theme.textSecondary }}>Users</th>
+                                  <th style={{ padding: '8px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: theme.textSecondary }}>Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {reportsData.top_ips.map((ip, idx) => (
+                                  <tr key={idx} style={{ borderBottom: `1px solid ${theme.border}` }}>
+                                    <td style={{ padding: '8px', fontFamily: 'monospace', fontSize: '12px' }}>{ip.ip_address}</td>
+                                    <td style={{ padding: '8px', textAlign: 'right', fontWeight: '600' }}>{ip.unique_users}</td>
+                                    <td style={{ padding: '8px', textAlign: 'right' }}>{ip.total_actions}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Most Active Users by Actions */}
+                      {reportsData.most_active_users && reportsData.most_active_users.length > 0 && (
+                        <div className="card" style={{ padding: '20px' }}>
+                          <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Most Active Users (All Actions)</h3>
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                              <thead>
+                                <tr style={{ borderBottom: `2px solid ${theme.border}` }}>
+                                  <th style={{ padding: '8px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: theme.textSecondary }}>Username</th>
+                                  <th style={{ padding: '8px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: theme.textSecondary }}>Actions</th>
+                                  <th style={{ padding: '8px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: theme.textSecondary }}>Types</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {reportsData.most_active_users.map((user, idx) => (
+                                  <tr key={idx} style={{ borderBottom: `1px solid ${theme.border}` }}>
+                                    <td style={{ padding: '8px' }}>{user.username}</td>
+                                    <td style={{ padding: '8px', textAlign: 'right', fontWeight: '600', color: theme.brandPrimary }}>{user.total_actions}</td>
+                                    <td style={{ padding: '8px', textAlign: 'right', color: theme.textSecondary }}>{user.distinct_actions}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Geographic Distribution */}
+                  {reportsData.geographic_distribution && reportsData.geographic_distribution.length > 0 && (
+                    <div className="card" style={{ padding: '20px', marginBottom: '24px' }}>
+                      <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Geographic Distribution</h3>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
+                        {reportsData.geographic_distribution.map((geo, idx) => {
+                          const maxCount = reportsData.geographic_distribution[0].count;
+                          const percentage = (geo.count / maxCount) * 100;
+                          return (
+                            <div key={idx} style={{
+                              padding: '12px',
+                              background: theme.bgSecondary,
+                              borderRadius: '8px',
+                              border: `1px solid ${theme.border}`
+                            }}>
+                              <div style={{ fontSize: '13px', fontWeight: '500', marginBottom: '4px' }}>
+                                {geo.location}
+                              </div>
+                              <div style={{ fontSize: '20px', fontWeight: '700', color: theme.brandPrimary }}>
+                                {geo.count}
+                              </div>
+                              <div style={{
+                                marginTop: '8px',
+                                height: '4px',
+                                background: theme.bgTertiary,
+                                borderRadius: '2px',
+                                overflow: 'hidden'
+                              }}>
+                                <div style={{
+                                  width: `${percentage}%`,
+                                  height: '100%',
+                                  background: theme.brandPrimary
+                                }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Entity Type Activity */}
+                  {reportsData.entity_activity && reportsData.entity_activity.length > 0 && (
+                    <div className="card" style={{ padding: '20px', marginBottom: '24px' }}>
+                      <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>Entity Type Activity</h3>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                        {reportsData.entity_activity.map((entity, idx) => {
+                          const total = reportsData.entity_activity.reduce((sum, e) => sum + e.count, 0);
+                          const percentage = (entity.count / total) * 100;
+                          return (
+                            <div key={idx} style={{
+                              padding: '16px 24px',
+                              background: theme.bgSecondary,
+                              borderRadius: '8px',
+                              border: `2px solid ${theme.border}`,
+                              minWidth: '150px',
+                              textAlign: 'center'
+                            }}>
+                              <div style={{ fontSize: '24px', fontWeight: '700', color: theme.success }}>
+                                {entity.count}
+                              </div>
+                              <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px', textTransform: 'capitalize' }}>
+                                {entity.entity_type}
+                              </div>
+                              <div style={{ fontSize: '11px', color: theme.textTertiary, marginTop: '2px' }}>
+                                {percentage.toFixed(1)}% of total
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Session Statistics */}
+                  {reportsData.session_stats && reportsData.session_stats.total_sessions_estimated > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                      <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '32px', fontWeight: '700', color: theme.info }}>
+                          {reportsData.session_stats.total_sessions_estimated}
+                        </div>
+                        <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>Estimated Sessions</div>
+                      </div>
+                      <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '32px', fontWeight: '700', color: theme.success }}>
+                          {reportsData.session_stats.avg_actions_per_session}
+                        </div>
+                        <div style={{ fontSize: '13px', color: theme.textSecondary, marginTop: '4px' }}>Avg Actions per Session</div>
+                      </div>
+                    </div>
+                  )}
+
+                </>
+              )}
             </div>
           )}
         </div>

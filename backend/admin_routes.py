@@ -2,7 +2,7 @@
 Admin-only routes for user and parser management
 """
 from flask import Blueprint, request, jsonify
-from sqlalchemy import func
+from sqlalchemy import func, extract, case
 from database import SessionLocal
 from models import (
     User,
@@ -13,9 +13,11 @@ from models import (
     DeletionLog,
     S3Configuration,
     SSLConfiguration,
+    AuditLog,
+    Session,
 )
 from auth import admin_required, log_audit
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import re
 import time
@@ -2075,3 +2077,535 @@ def list_docker_services(current_user, db):
             'services': [],
             'error': f'Unexpected error: {str(e)}'
         }), 500
+
+
+@admin_bp.route('/reports', methods=['GET'])
+@admin_required
+def get_reports(current_user, db):
+    """
+    Get comprehensive system usage reports
+    Returns statistics about logins, analyses, parse modes, storage, and activity trends
+    """
+    try:
+        print("=== Starting reports generation ===")
+        # Get time range from query params (default: last 30 days)
+        days = request.args.get('days', 30, type=int)
+        if days < 1:
+            days = 30
+        if days > 365:
+            days = 365
+
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        print(f"Date range: {cutoff_date} to {datetime.utcnow()} ({days} days)")
+
+        # 1. LOGIN ACTIVITY PER USER
+        print("Fetching login activity...")
+        login_activity = db.query(
+            User.id,
+            User.username,
+            func.count(AuditLog.id).label('login_count')
+        ).outerjoin(
+            AuditLog,
+            (AuditLog.user_id == User.id) &
+            (AuditLog.action == 'login') &
+            (AuditLog.timestamp >= cutoff_date) &
+            (AuditLog.success == True)
+        ).group_by(User.id, User.username).all()
+
+        login_data = [
+            {
+                'user_id': user.id,
+                'username': user.username,
+                'login_count': user.login_count or 0
+            }
+            for user in login_activity
+        ]
+        print(f"Login activity: {len(login_data)} users")
+
+        # 2. ANALYSES PER USER
+        analysis_activity = db.query(
+            User.id,
+            User.username,
+            func.count(Analysis.id).label('analysis_count')
+        ).outerjoin(
+            Analysis,
+            (Analysis.user_id == User.id) &
+            (Analysis.created_at >= cutoff_date) &
+            (Analysis.is_deleted == False)
+        ).group_by(User.id, User.username).all()
+
+        analysis_data = [
+            {
+                'user_id': user.id,
+                'username': user.username,
+                'analysis_count': user.analysis_count or 0
+            }
+            for user in analysis_activity
+        ]
+
+        # 3. PARSE MODE USAGE
+        parse_mode_usage = db.query(
+            Analysis.parse_mode,
+            func.count(Analysis.id).label('usage_count')
+        ).filter(
+            Analysis.created_at >= cutoff_date,
+            Analysis.is_deleted == False
+        ).group_by(Analysis.parse_mode).order_by(
+            func.count(Analysis.id).desc()
+        ).all()
+
+        parse_mode_data = [
+            {
+                'parse_mode': mode.parse_mode,
+                'usage_count': mode.usage_count
+            }
+            for mode in parse_mode_usage
+        ]
+
+        # 4. STORAGE USAGE PER USER
+        storage_usage = db.query(
+            User.id,
+            User.username,
+            User.storage_used_mb,
+            User.storage_quota_mb
+        ).all()
+
+        storage_data = [
+            {
+                'user_id': user.id,
+                'username': user.username,
+                'storage_used_mb': user.storage_used_mb or 0,
+                'storage_quota_mb': user.storage_quota_mb or 0,
+                'storage_percent': round((user.storage_used_mb or 0) / max(user.storage_quota_mb or 1, 1) * 100, 1)
+            }
+            for user in storage_usage
+        ]
+
+        # 5. ACTIVITY TIMELINE (daily breakdown)
+        # Logins per day
+        logins_timeline = db.query(
+            func.date(AuditLog.timestamp).label('date'),
+            func.count(AuditLog.id).label('count')
+        ).filter(
+            AuditLog.action == 'login',
+            AuditLog.success == True,
+            AuditLog.timestamp >= cutoff_date
+        ).group_by(
+            func.date(AuditLog.timestamp)
+        ).order_by(
+            func.date(AuditLog.timestamp)
+        ).all()
+
+        logins_timeline_data = [
+            {
+                'date': entry.date.isoformat() if entry.date else None,
+                'count': entry.count
+            }
+            for entry in logins_timeline
+        ]
+
+        # Analyses per day
+        analyses_timeline = db.query(
+            func.date(Analysis.created_at).label('date'),
+            func.count(Analysis.id).label('count')
+        ).filter(
+            Analysis.created_at >= cutoff_date,
+            Analysis.is_deleted == False
+        ).group_by(
+            func.date(Analysis.created_at)
+        ).order_by(
+            func.date(Analysis.created_at)
+        ).all()
+
+        analyses_timeline_data = [
+            {
+                'date': entry.date.isoformat() if entry.date else None,
+                'count': entry.count
+            }
+            for entry in analyses_timeline
+        ]
+
+        # 6. TOP USERS BY ACTIVITY
+        # Get comprehensive user stats
+        top_users = db.query(
+            User.id,
+            User.username,
+            User.role,
+            func.count(func.distinct(Analysis.id)).label('total_analyses'),
+            func.count(func.distinct(
+                case(
+                    (AuditLog.action == 'login', AuditLog.id),
+                    else_=None
+                )
+            )).label('total_logins'),
+            User.storage_used_mb
+        ).outerjoin(
+            Analysis,
+            (Analysis.user_id == User.id) &
+            (Analysis.created_at >= cutoff_date) &
+            (Analysis.is_deleted == False)
+        ).outerjoin(
+            AuditLog,
+            (AuditLog.user_id == User.id) &
+            (AuditLog.timestamp >= cutoff_date) &
+            (AuditLog.action == 'login') &
+            (AuditLog.success == True)
+        ).group_by(
+            User.id, User.username, User.role, User.storage_used_mb
+        ).order_by(
+            func.count(func.distinct(Analysis.id)).desc()
+        ).limit(10).all()
+
+        top_users_data = [
+            {
+                'user_id': user.id,
+                'username': user.username,
+                'role': user.role,
+                'total_analyses': user.total_analyses or 0,
+                'total_logins': user.total_logins or 0,
+                'storage_used_mb': user.storage_used_mb or 0
+            }
+            for user in top_users
+        ]
+
+        # 7. ANALYSIS STATUS BREAKDOWN
+        status_breakdown = db.query(
+            Analysis.status,
+            func.count(Analysis.id).label('count')
+        ).filter(
+            Analysis.created_at >= cutoff_date,
+            Analysis.is_deleted == False
+        ).group_by(Analysis.status).all()
+
+        status_data = [
+            {
+                'status': status.status,
+                'count': status.count
+            }
+            for status in status_breakdown
+        ]
+
+        # 8. AVERAGE PROCESSING TIME
+        avg_processing = db.query(
+            func.avg(Analysis.processing_time_seconds).label('avg_seconds'),
+            func.max(Analysis.processing_time_seconds).label('max_seconds'),
+            func.min(Analysis.processing_time_seconds).label('min_seconds')
+        ).filter(
+            Analysis.created_at >= cutoff_date,
+            Analysis.status == 'completed',
+            Analysis.processing_time_seconds.isnot(None),
+            Analysis.is_deleted == False
+        ).first()
+
+        processing_stats = {
+            'avg_seconds': round(avg_processing.avg_seconds, 2) if avg_processing.avg_seconds else 0,
+            'max_seconds': avg_processing.max_seconds or 0,
+            'min_seconds': avg_processing.min_seconds or 0
+        }
+
+        # 9. UNIQUE ACTIVE USERS (users who logged in or created analyses)
+        active_users_count = db.query(func.count(func.distinct(User.id))).select_from(User).outerjoin(
+            AuditLog,
+            (AuditLog.user_id == User.id) &
+            (AuditLog.timestamp >= cutoff_date)
+        ).outerjoin(
+            Analysis,
+            (Analysis.user_id == User.id) &
+            (Analysis.created_at >= cutoff_date)
+        ).filter(
+            (AuditLog.id.isnot(None)) | (Analysis.id.isnot(None))
+        ).scalar()
+
+        # 10. HOURLY DISTRIBUTION (which hours are most active)
+        hourly_distribution = db.query(
+            extract('hour', AuditLog.timestamp).label('hour'),
+            func.count(AuditLog.id).label('activity_count')
+        ).filter(
+            AuditLog.timestamp >= cutoff_date
+        ).group_by(
+            extract('hour', AuditLog.timestamp)
+        ).order_by(
+            extract('hour', AuditLog.timestamp)
+        ).all()
+
+        hourly_data = [
+            {
+                'hour': int(entry.hour) if entry.hour is not None else 0,
+                'activity_count': entry.activity_count
+            }
+            for entry in hourly_distribution
+        ]
+
+        # 11. ACTION TYPE BREAKDOWN (from audit logs)
+        action_breakdown = db.query(
+            AuditLog.action,
+            func.count(AuditLog.id).label('count')
+        ).filter(
+            AuditLog.timestamp >= cutoff_date
+        ).group_by(AuditLog.action).order_by(
+            func.count(AuditLog.id).desc()
+        ).all()
+
+        action_data = [
+            {
+                'action': action.action,
+                'count': action.count
+            }
+            for action in action_breakdown
+        ]
+
+        # 12. FAILED ACTIONS (errors and failures from audit logs)
+        failed_actions = db.query(
+            AuditLog.action,
+            func.count(AuditLog.id).label('count')
+        ).filter(
+            AuditLog.timestamp >= cutoff_date,
+            AuditLog.success == False
+        ).group_by(AuditLog.action).order_by(
+            func.count(AuditLog.id).desc()
+        ).all()
+
+        failed_actions_data = [
+            {
+                'action': action.action,
+                'count': action.count
+            }
+            for action in failed_actions
+        ]
+
+        # 13. TOP IP ADDRESSES (where users connect from)
+        top_ips = db.query(
+            AuditLog.ip_address,
+            func.count(func.distinct(AuditLog.user_id)).label('unique_users'),
+            func.count(AuditLog.id).label('total_actions')
+        ).filter(
+            AuditLog.timestamp >= cutoff_date,
+            AuditLog.ip_address.isnot(None)
+        ).group_by(AuditLog.ip_address).order_by(
+            func.count(AuditLog.id).desc()
+        ).limit(10).all()
+
+        top_ips_data = [
+            {
+                'ip_address': ip.ip_address,
+                'unique_users': ip.unique_users,
+                'total_actions': ip.total_actions
+            }
+            for ip in top_ips
+        ]
+
+        # 14. USER AGENTS / BROWSERS (what devices/browsers are used)
+        # Extract browser from user agent
+        user_agents = db.query(
+            AuditLog.user_agent,
+            func.count(AuditLog.id).label('count')
+        ).filter(
+            AuditLog.timestamp >= cutoff_date,
+            AuditLog.user_agent.isnot(None)
+        ).group_by(AuditLog.user_agent).order_by(
+            func.count(AuditLog.id).desc()
+        ).limit(10).all()
+
+        # Simplify user agents to browser types
+        browser_stats = {}
+        for ua in user_agents:
+            ua_str = ua.user_agent.lower() if ua.user_agent else 'unknown'
+            browser = 'Other'
+            if 'chrome' in ua_str and 'edg' not in ua_str:
+                browser = 'Chrome'
+            elif 'firefox' in ua_str:
+                browser = 'Firefox'
+            elif 'safari' in ua_str and 'chrome' not in ua_str:
+                browser = 'Safari'
+            elif 'edg' in ua_str:
+                browser = 'Edge'
+            elif 'opera' in ua_str or 'opr' in ua_str:
+                browser = 'Opera'
+
+            browser_stats[browser] = browser_stats.get(browser, 0) + ua.count
+
+        browser_data = [
+            {'browser': browser, 'count': count}
+            for browser, count in sorted(browser_stats.items(), key=lambda x: x[1], reverse=True)
+        ]
+
+        # 15. ENTITY TYPE ACTIVITY (what entities are being acted on)
+        entity_activity = db.query(
+            AuditLog.entity_type,
+            func.count(AuditLog.id).label('count')
+        ).filter(
+            AuditLog.timestamp >= cutoff_date,
+            AuditLog.entity_type.isnot(None)
+        ).group_by(AuditLog.entity_type).order_by(
+            func.count(AuditLog.id).desc()
+        ).all()
+
+        entity_data = [
+            {
+                'entity_type': entity.entity_type,
+                'count': entity.count
+            }
+            for entity in entity_activity
+        ]
+
+        # 16. USER ACTIVITY HEATMAP (day of week + hour)
+        weekday_hour_activity = db.query(
+            extract('dow', AuditLog.timestamp).label('day_of_week'),  # 0=Sunday, 6=Saturday
+            extract('hour', AuditLog.timestamp).label('hour'),
+            func.count(AuditLog.id).label('count')
+        ).filter(
+            AuditLog.timestamp >= cutoff_date
+        ).group_by(
+            extract('dow', AuditLog.timestamp),
+            extract('hour', AuditLog.timestamp)
+        ).all()
+
+        weekday_hour_data = [
+            {
+                'day_of_week': int(entry.day_of_week) if entry.day_of_week is not None else 0,
+                'hour': int(entry.hour) if entry.hour is not None else 0,
+                'count': entry.count
+            }
+            for entry in weekday_hour_activity
+        ]
+
+        # 17. MOST ACTIVE USERS (by all audit log actions)
+        most_active_users = db.query(
+            User.id,
+            User.username,
+            func.count(AuditLog.id).label('total_actions'),
+            func.count(func.distinct(AuditLog.action)).label('distinct_actions'),
+            func.max(AuditLog.timestamp).label('last_activity')
+        ).join(
+            AuditLog,
+            AuditLog.user_id == User.id
+        ).filter(
+            AuditLog.timestamp >= cutoff_date
+        ).group_by(User.id, User.username).order_by(
+            func.count(AuditLog.id).desc()
+        ).limit(10).all()
+
+        most_active_data = [
+            {
+                'user_id': user.id,
+                'username': user.username,
+                'total_actions': user.total_actions,
+                'distinct_actions': user.distinct_actions,
+                'last_activity': user.last_activity.isoformat() if user.last_activity else None
+            }
+            for user in most_active_users
+        ]
+
+        # 18. GEOGRAPHIC DISTRIBUTION (if details contain location info)
+        # This assumes geo_service adds location to details JSON
+        geo_data = []
+        try:
+            geo_logs = db.query(AuditLog.details).filter(
+                AuditLog.timestamp >= cutoff_date,
+                AuditLog.details.isnot(None)
+            ).all()
+
+            geo_stats = {}
+            for log in geo_logs:
+                if log.details and isinstance(log.details, dict):
+                    country = log.details.get('country')
+                    city = log.details.get('city')
+                    if country:
+                        key = f"{city}, {country}" if city else country
+                        geo_stats[key] = geo_stats.get(key, 0) + 1
+
+            geo_data = [
+                {'location': loc, 'count': count}
+                for loc, count in sorted(geo_stats.items(), key=lambda x: x[1], reverse=True)[:15]
+            ]
+        except:
+            pass  # Geo data is optional
+
+        # 19. SUCCESS VS FAILURE RATE
+        success_rate = db.query(
+            AuditLog.success,
+            func.count(AuditLog.id).label('count')
+        ).filter(
+            AuditLog.timestamp >= cutoff_date
+        ).group_by(AuditLog.success).all()
+
+        success_data = [
+            {
+                'success': bool(entry.success),
+                'count': entry.count
+            }
+            for entry in success_rate
+        ]
+
+        # 20. AVERAGE SESSION DURATION (from audit logs timestamps)
+        # Group consecutive actions by user within 30 min windows
+        session_stats = {
+            'avg_actions_per_session': 0,
+            'total_sessions_estimated': 0
+        }
+
+        try:
+            # Count actions per user per day as rough session estimate
+            daily_user_actions = db.query(
+                AuditLog.user_id,
+                func.date(AuditLog.timestamp).label('date'),
+                func.count(AuditLog.id).label('action_count')
+            ).filter(
+                AuditLog.timestamp >= cutoff_date
+            ).group_by(
+                AuditLog.user_id,
+                func.date(AuditLog.timestamp)
+            ).all()
+
+            if daily_user_actions:
+                total_sessions = len(daily_user_actions)
+                total_actions = sum(s.action_count for s in daily_user_actions)
+                session_stats = {
+                    'avg_actions_per_session': round(total_actions / max(total_sessions, 1), 2),
+                    'total_sessions_estimated': total_sessions
+                }
+        except:
+            pass
+
+        # Log audit trail
+        log_audit(
+            db=db,
+            user_id=current_user.id,
+            action='view_reports',
+            entity_type='reports',
+            details={'days': days}
+        )
+
+        return jsonify({
+            'time_range_days': days,
+            'cutoff_date': cutoff_date.isoformat(),
+            # Original metrics
+            'login_activity': login_data,
+            'analysis_activity': analysis_data,
+            'parse_mode_usage': parse_mode_data,
+            'storage_usage': storage_data,
+            'logins_timeline': logins_timeline_data,
+            'analyses_timeline': analyses_timeline_data,
+            'top_users': top_users_data,
+            'status_breakdown': status_data,
+            'processing_stats': processing_stats,
+            'active_users_count': active_users_count or 0,
+            'hourly_distribution': hourly_data,
+            # New audit-log-based metrics
+            'action_breakdown': action_data,
+            'failed_actions': failed_actions_data,
+            'top_ips': top_ips_data,
+            'browser_stats': browser_data,
+            'entity_activity': entity_data,
+            'weekday_hour_heatmap': weekday_hour_data,
+            'most_active_users': most_active_data,
+            'geographic_distribution': geo_data,
+            'success_rate': success_data,
+            'session_stats': session_stats
+        }), 200
+
+    except Exception as e:
+        print(f"Error fetching reports: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
