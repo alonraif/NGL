@@ -19,7 +19,7 @@ const AdminDashboard = () => {
   const [newInvite, setNewInvite] = useState({
     email: '',
     role: 'user',
-    storage_quota_mb: 500
+    storage_quota_mb: 5000
   });
   const [inviteResult, setInviteResult] = useState(null);
   const [recentInvites, setRecentInvites] = useState([]);
@@ -85,6 +85,24 @@ const AdminDashboard = () => {
   });
   const [sslMessage, setSslMessage] = useState(null);
   const [sslError, setSslError] = useState(null);
+
+  // SMTP configuration state
+  const [smtpConfig, setSmtpConfig] = useState(null);
+  const [smtpLoading, setSmtpLoading] = useState(false);
+  const [smtpProcessing, setSmtpProcessing] = useState(false);
+  const [smtpMessage, setSmtpMessage] = useState(null);
+  const [smtpError, setSmtpError] = useState(null);
+  const [smtpForm, setSmtpForm] = useState({
+    host: '',
+    port: 587,
+    username: '',
+    password: '',
+    from_email: '',
+    use_tls: true,
+    is_enabled: false,
+    clear_password: false
+  });
+  const [smtpTestEmail, setSmtpTestEmail] = useState('');
 
   // Audit logs state
   const [auditLogs, setAuditLogs] = useState([]);
@@ -566,6 +584,78 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleSmtpFormChange = (field, value) => {
+    setSmtpForm(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const submitSmtpConfig = async (e) => {
+    e?.preventDefault();
+    setSmtpProcessing(true);
+    setSmtpMessage(null);
+    setSmtpError(null);
+    try {
+      const portValue = parseInt(smtpForm.port, 10);
+      if (Number.isNaN(portValue)) {
+        setSmtpError('SMTP port must be a number');
+        setSmtpProcessing(false);
+        return;
+      }
+      const payload = {
+        host: smtpForm.host.trim(),
+        port: portValue,
+        username: smtpForm.username.trim(),
+        from_email: smtpForm.from_email.trim(),
+        use_tls: smtpForm.use_tls,
+        is_enabled: smtpForm.is_enabled,
+        clear_password: smtpForm.clear_password
+      };
+      if (smtpForm.password) {
+        payload.password = smtpForm.password;
+      }
+      const response = await axios.post('/api/admin/smtp/config', payload);
+      setSmtpConfig(response.data?.config || null);
+      setSmtpMessage(response.data?.message || 'SMTP configuration updated');
+      setSmtpForm(prev => ({
+        ...prev,
+        password: '',
+        clear_password: false
+      }));
+    } catch (error) {
+      console.error('Failed to update SMTP config:', error);
+      setSmtpError(error.response?.data?.error || 'Failed to update SMTP configuration');
+    } finally {
+      setSmtpProcessing(false);
+    }
+  };
+
+  const handleTestSmtp = async () => {
+    setSmtpProcessing(true);
+    setSmtpMessage(null);
+    setSmtpError(null);
+    try {
+      if (!smtpTestEmail.trim()) {
+        setSmtpError('Test email is required');
+        return;
+      }
+      const response = await axios.post('/api/admin/smtp/test', {
+        email: smtpTestEmail.trim()
+      });
+      if (response.data?.success) {
+        setSmtpMessage(response.data?.message || 'Test email sent');
+      } else {
+        setSmtpError(response.data?.message || 'SMTP test failed');
+      }
+    } catch (error) {
+      console.error('Failed to test SMTP:', error);
+      setSmtpError(error.response?.data?.error || 'Failed to send test email');
+    } finally {
+      setSmtpProcessing(false);
+    }
+  };
+
   const handleSslFileChange = (field, files) => {
     const file = files && files.length > 0 ? files[0] : null;
     setSslUploadForm(prev => ({
@@ -597,6 +687,33 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Failed to update user:', error);
       alert('Failed to make user admin');
+    }
+  };
+
+  const handleChangeStorageQuota = async (targetUser) => {
+    const input = window.prompt(
+      `Set storage quota (MB) for ${targetUser.username}:`,
+      targetUser.storage_quota_mb
+    );
+    if (input === null) return;
+    const storageQuotaMb = parseInt(input, 10);
+    if (Number.isNaN(storageQuotaMb)) {
+      alert('Storage quota must be a number');
+      return;
+    }
+    if (storageQuotaMb < 100) {
+      alert('Storage quota must be at least 100 MB');
+      return;
+    }
+    try {
+      await axios.put(`/api/admin/users/${targetUser.id}`, {
+        storage_quota_mb: storageQuotaMb
+      });
+      fetchUsers();
+      alert(`Storage quota updated for ${targetUser.username}`);
+    } catch (error) {
+      console.error('Failed to update storage quota:', error);
+      alert(error.response?.data?.error || 'Failed to update storage quota');
     }
   };
 
@@ -692,6 +809,37 @@ const AdminDashboard = () => {
     }
   }, []);
 
+  const fetchSmtpConfig = useCallback(async (showSpinner = true) => {
+    try {
+      if (showSpinner) {
+        setSmtpLoading(true);
+      }
+      const response = await axios.get('/api/admin/smtp/config');
+      const config = response.data?.config || null;
+      setSmtpConfig(config);
+      if (config) {
+        setSmtpForm(prev => ({
+          ...prev,
+          host: config.host || '',
+          port: config.port || 587,
+          username: config.username || '',
+          from_email: config.from_email || '',
+          use_tls: config.use_tls !== false,
+          is_enabled: config.is_enabled || false,
+          password: '',
+          clear_password: false
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to fetch SMTP config:', error);
+      setSmtpError('Failed to load SMTP configuration');
+    } finally {
+      if (showSpinner) {
+        setSmtpLoading(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     fetchStats();
     fetchUsers();
@@ -701,7 +849,8 @@ const AdminDashboard = () => {
     fetchS3Config();
     fetchS3Stats();
     fetchSslConfig();
-  }, [fetchStats, fetchUsers, fetchInvites, fetchParsers, fetchAnalyses, fetchS3Config, fetchS3Stats, fetchSslConfig]);
+    fetchSmtpConfig();
+  }, [fetchStats, fetchUsers, fetchInvites, fetchParsers, fetchAnalyses, fetchS3Config, fetchS3Stats, fetchSslConfig, fetchSmtpConfig]);
 
   useEffect(() => {
     if (activeTab === 'users') {
@@ -714,10 +863,13 @@ const AdminDashboard = () => {
       fetchAuditLogs();
       fetchAuditStats();
     }
+    if (activeTab === 'smtp') {
+      fetchSmtpConfig(false);
+    }
     if (activeTab === 'reports') {
       fetchReports();
     }
-  }, [activeTab, fetchInvites, fetchAnalyses, fetchAuditLogs, fetchAuditStats, fetchReports]);
+  }, [activeTab, fetchInvites, fetchAnalyses, fetchAuditLogs, fetchAuditStats, fetchReports, fetchSmtpConfig]);
 
   useEffect(() => {
     if (activeTab === 'audit') {
@@ -884,6 +1036,12 @@ const AdminDashboard = () => {
               onClick={() => setActiveTab('ssl')}
             >
               SSL
+            </button>
+            <button
+              className={`admin-tab ${activeTab === 'smtp' ? 'active' : ''}`}
+              onClick={() => setActiveTab('smtp')}
+            >
+              Email (SMTP)
             </button>
             <button
               className={`admin-tab ${activeTab === 'reports' ? 'active' : ''}`}
@@ -1321,6 +1479,12 @@ const AdminDashboard = () => {
                                 Make Admin
                               </button>
                             )}
+                            <button
+                              onClick={() => handleChangeStorageQuota(u)}
+                              className="btn btn-small"
+                            >
+                              Change Quota
+                            </button>
                             <button
                               onClick={() => {
                                 setSelectedUser(u);
@@ -2040,6 +2204,172 @@ const AdminDashboard = () => {
                       <li>Enforcement redirects all HTTP requests to HTTPS and enables HSTS headers.</li>
                       <li>Health checks validate that HTTPS is working; failures are logged in the backend audit trail.</li>
                     </ul>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'smtp' && (
+            <div className="admin-content">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div>
+                  <h2 style={{ margin: 0 }}>Email (SMTP)</h2>
+                  <p style={{ margin: '4px 0 0 0', color: theme.textSecondary, fontSize: '14px' }}>
+                    Configure outbound email for user invites and notifications
+                  </p>
+                </div>
+                {smtpConfig && (
+                  <span className={`status-badge ${smtpConfig.is_enabled ? 'status-success' : 'status-info'}`} style={{ fontSize: '13px' }}>
+                    {smtpConfig.is_enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                )}
+              </div>
+
+              {smtpError && (
+                <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '6px', background: theme.errorBg, border: `1px solid ${theme.errorBg}`, color: theme.error }}>
+                  {smtpError}
+                </div>
+              )}
+              {smtpMessage && (
+                <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '6px', background: theme.successLight, border: `1px solid ${theme.successBg}`, color: theme.success }}>
+                  {smtpMessage}
+                </div>
+              )}
+
+              {smtpLoading ? (
+                <p>Loading SMTP configuration…</p>
+              ) : (
+                <>
+                  <div className="card" style={{ marginBottom: '20px' }}>
+                    <form onSubmit={submitSmtpConfig}>
+                      <div style={{ display: 'flex', gap: '20px', marginBottom: '16px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input
+                            type="checkbox"
+                            checked={smtpForm.is_enabled}
+                            onChange={(e) => handleSmtpFormChange('is_enabled', e.target.checked)}
+                          />
+                          Enable SMTP
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input
+                            type="checkbox"
+                            checked={smtpForm.use_tls}
+                            onChange={(e) => handleSmtpFormChange('use_tls', e.target.checked)}
+                          />
+                          Use TLS
+                        </label>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '20px' }}>
+                        <div className="form-group">
+                          <label style={{ fontWeight: '500', marginBottom: '6px', display: 'block' }}>SMTP Host</label>
+                          <input
+                            type="text"
+                            placeholder="smtp.example.com"
+                            value={smtpForm.host}
+                            onChange={(e) => handleSmtpFormChange('host', e.target.value)}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label style={{ fontWeight: '500', marginBottom: '6px', display: 'block' }}>SMTP Port</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="65535"
+                            value={smtpForm.port}
+                            onChange={(e) => handleSmtpFormChange('port', e.target.value)}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label style={{ fontWeight: '500', marginBottom: '6px', display: 'block' }}>SMTP Username</label>
+                          <input
+                            type="text"
+                            placeholder="smtp-user"
+                            value={smtpForm.username}
+                            onChange={(e) => handleSmtpFormChange('username', e.target.value)}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label style={{ fontWeight: '500', marginBottom: '6px', display: 'block' }}>From Email</label>
+                          <input
+                            type="email"
+                            placeholder="no-reply@example.com"
+                            value={smtpForm.from_email}
+                            onChange={(e) => handleSmtpFormChange('from_email', e.target.value)}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label style={{ fontWeight: '500', marginBottom: '6px', display: 'block' }}>SMTP Password</label>
+                          <input
+                            type="password"
+                            placeholder={smtpConfig?.password_set ? '•••••••• (saved)' : 'Enter password'}
+                            value={smtpForm.password}
+                            onChange={(e) => handleSmtpFormChange('password', e.target.value)}
+                            style={{ width: '100%' }}
+                          />
+                          {smtpConfig?.password_set && (
+                            <small style={{ display: 'block', marginTop: '6px', color: theme.textSecondary }}>
+                              Leave blank to keep the current password.
+                            </small>
+                          )}
+                        </div>
+                        {smtpConfig?.password_set && (
+                          <div className="form-group" style={{ display: 'flex', alignItems: 'center' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <input
+                                type="checkbox"
+                                checked={smtpForm.clear_password}
+                                onChange={(e) => handleSmtpFormChange('clear_password', e.target.checked)}
+                              />
+                              Clear saved password
+                            </label>
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ marginTop: '20px', display: 'flex', gap: '12px' }}>
+                        <button type="submit" className="btn btn-primary" disabled={smtpProcessing}>
+                          {smtpProcessing ? 'Saving...' : 'Save SMTP Settings'}
+                        </button>
+                        <button type="button" className="btn btn-secondary" onClick={() => fetchSmtpConfig()} disabled={smtpProcessing}>
+                          Refresh
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  <div className="card" style={{ marginBottom: '20px' }}>
+                    <h3 style={{ marginBottom: '12px', fontSize: '16px', fontWeight: '600' }}>Test Connection</h3>
+                    <p style={{ marginBottom: '12px', color: theme.textSecondary, fontSize: '13px' }}>
+                      Send a test email using the current SMTP settings.
+                    </p>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                      <input
+                        type="email"
+                        placeholder="test@example.com"
+                        value={smtpTestEmail}
+                        onChange={(e) => setSmtpTestEmail(e.target.value)}
+                        style={{ flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={handleTestSmtp}
+                        disabled={smtpProcessing}
+                      >
+                        Test Connection
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '12px 16px', background: theme.infoLight, border: `1px solid ${theme.infoBg}`, borderRadius: '6px', fontSize: '13px', color: theme.info }}>
+                    <strong>Tip:</strong> Use a dedicated SMTP account for transactional email. If TLS is disabled, make sure your provider supports plaintext SMTP.
                   </div>
                 </>
               )}

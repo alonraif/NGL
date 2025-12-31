@@ -14,6 +14,7 @@ from models import (
     DeletionLog,
     S3Configuration,
     SSLConfiguration,
+    SMTPConfiguration,
     AuditLog,
     Session,
 )
@@ -25,7 +26,7 @@ import secrets
 import time
 from storage_service import StorageFactory
 from config import Config
-from email_service import send_invite_email
+from email_service import send_invite_email, send_test_email
 from ssl_service import (
     SSLConfigurationError,
     SSLVerificationError,
@@ -115,6 +116,17 @@ def get_or_create_ssl_config(db):
     return ssl_config
 
 
+def get_or_create_smtp_config(db):
+    """Return the singleton SMTP configuration row, creating it if necessary."""
+    smtp_config = db.query(SMTPConfiguration).first()
+    if not smtp_config:
+        smtp_config = SMTPConfiguration()
+        db.add(smtp_config)
+        db.commit()
+        db.refresh(smtp_config)
+    return smtp_config
+
+
 def validate_domains(primary_domain, alternate_domains):
     """Validate domain inputs and return normalized list."""
     domains = normalize_domains(primary_domain, alternate_domains)
@@ -158,7 +170,7 @@ def create_invite(current_user, db):
 
         email = data.get('email', '').strip().lower()
         role = data.get('role', 'user')
-        storage_quota_mb = data.get('storage_quota_mb', 500)
+        storage_quota_mb = data.get('storage_quota_mb', 5000)
 
         if not email:
             return jsonify({'error': 'Email is required'}), 400
@@ -375,7 +387,7 @@ def create_user(current_user, db):
         email = data.get('email', '').strip().lower()
         password = data.get('password', '')
         role = data.get('role', 'user')  # Default role
-        storage_quota_mb = data.get('storage_quota_mb', 500)  # Default 500MB
+        storage_quota_mb = data.get('storage_quota_mb', 5000)  # Default 5000MB
 
         if not username or not email or not password:
             return jsonify({'error': 'Username, email, and password are required'}), 400
@@ -459,7 +471,13 @@ def update_user(user_id, current_user, db):
         if 'is_active' in data:
             user.is_active = data['is_active']
         if 'storage_quota_mb' in data:
-            user.storage_quota_mb = data['storage_quota_mb']
+            try:
+                storage_quota_mb = int(data['storage_quota_mb'])
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Storage quota must be a number'}), 400
+            if storage_quota_mb < 100:
+                return jsonify({'error': 'Storage quota must be at least 100 MB'}), 400
+            user.storage_quota_mb = storage_quota_mb
 
         db.commit()
 
@@ -1331,6 +1349,141 @@ def get_s3_stats(current_user, db):
 
     except Exception as e:
         return jsonify({'error': f'Failed to get S3 stats: {str(e)}'}), 500
+
+
+# SMTP Configuration Routes
+@admin_bp.route('/smtp/config', methods=['GET'])
+@admin_required
+def get_smtp_config(current_user, db):
+    """Get SMTP configuration (admin only) with masked password"""
+    try:
+        smtp_config = db.query(SMTPConfiguration).first()
+        if not smtp_config:
+            return jsonify({
+                'configured': False,
+                'config': {
+                    'host': Config.SMTP_HOST,
+                    'port': Config.SMTP_PORT,
+                    'username': Config.SMTP_USER,
+                    'from_email': Config.SMTP_FROM,
+                    'use_tls': Config.SMTP_USE_TLS,
+                    'is_enabled': False,
+                    'password_set': bool(Config.SMTP_PASS)
+                }
+            }), 200
+
+        return jsonify({
+            'configured': True,
+            'config': {
+                'id': smtp_config.id,
+                'host': smtp_config.host,
+                'port': smtp_config.port,
+                'username': smtp_config.username,
+                'from_email': smtp_config.from_email,
+                'use_tls': smtp_config.use_tls,
+                'is_enabled': smtp_config.is_enabled,
+                'password_set': bool(smtp_config.password),
+                'updated_at': smtp_config.updated_at.isoformat() if smtp_config.updated_at else None
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to get SMTP config: {str(e)}'}), 500
+
+
+@admin_bp.route('/smtp/config', methods=['POST'])
+@admin_required
+def update_smtp_config(current_user, db):
+    """Update SMTP configuration (admin only)"""
+    try:
+        data = request.get_json() or {}
+        smtp_config = db.query(SMTPConfiguration).first()
+        if not smtp_config:
+            smtp_config = SMTPConfiguration()
+            db.add(smtp_config)
+
+        if 'host' in data:
+            smtp_config.host = data.get('host', '').strip() or None
+        if 'port' in data:
+            try:
+                smtp_config.port = int(data.get('port'))
+            except (TypeError, ValueError):
+                return jsonify({'error': 'SMTP port must be a number'}), 400
+            if smtp_config.port < 1 or smtp_config.port > 65535:
+                return jsonify({'error': 'SMTP port must be between 1 and 65535'}), 400
+        if 'username' in data:
+            smtp_config.username = data.get('username', '').strip() or None
+        if 'from_email' in data:
+            from_email = data.get('from_email', '').strip()
+            if from_email and not validate_email(from_email):
+                return jsonify({'error': 'Invalid from email format'}), 400
+            smtp_config.from_email = from_email or None
+        if 'use_tls' in data:
+            smtp_config.use_tls = bool(data.get('use_tls'))
+        if 'is_enabled' in data:
+            smtp_config.is_enabled = bool(data.get('is_enabled'))
+        if data.get('clear_password'):
+            smtp_config.password = None
+        elif 'password' in data and data.get('password'):
+            smtp_config.password = data.get('password')
+
+        if smtp_config.is_enabled and not smtp_config.host:
+            return jsonify({'error': 'SMTP host is required when enabled'}), 400
+
+        smtp_config.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(smtp_config)
+
+        log_audit(db, current_user.id, 'update_smtp_config', 'smtp_configuration', smtp_config.id, {
+            'host': smtp_config.host,
+            'port': smtp_config.port,
+            'username': smtp_config.username,
+            'from_email': smtp_config.from_email,
+            'use_tls': smtp_config.use_tls,
+            'is_enabled': smtp_config.is_enabled
+        })
+
+        return jsonify({
+            'message': 'SMTP configuration updated successfully',
+            'config': {
+                'id': smtp_config.id,
+                'host': smtp_config.host,
+                'port': smtp_config.port,
+                'username': smtp_config.username,
+                'from_email': smtp_config.from_email,
+                'use_tls': smtp_config.use_tls,
+                'is_enabled': smtp_config.is_enabled,
+                'password_set': bool(smtp_config.password),
+                'updated_at': smtp_config.updated_at.isoformat() if smtp_config.updated_at else None
+            }
+        }), 200
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': f'Failed to update SMTP config: {str(e)}'}), 500
+
+
+@admin_bp.route('/smtp/test', methods=['POST'])
+@admin_required
+def test_smtp_config(current_user, db):
+    """Send a test email with the current SMTP configuration (admin only)"""
+    try:
+        data = request.get_json() or {}
+        test_email = data.get('email', '').strip().lower()
+        if not test_email:
+            return jsonify({'error': 'Test email is required'}), 400
+        if not validate_email(test_email):
+            return jsonify({'error': 'Invalid email format'}), 400
+
+        email_sent, email_error = send_test_email(test_email)
+        if not email_sent:
+            return jsonify({'success': False, 'message': email_error or 'SMTP test failed'}), 400
+
+        log_audit(db, current_user.id, 'test_smtp_config', 'smtp_configuration', None, {
+            'email': test_email
+        })
+
+        return jsonify({'success': True, 'message': 'Test email sent successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to test SMTP config: {str(e)}'}), 500
 
 
 # ============================================================================

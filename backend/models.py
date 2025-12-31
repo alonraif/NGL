@@ -23,7 +23,7 @@ class User(Base):
     last_login = Column(DateTime(timezone=True))
 
     # Quota management
-    storage_quota_mb = Column(Integer, default=10240)  # 10GB default
+    storage_quota_mb = Column(Integer, default=5000)  # 5GB default
     storage_used_mb = Column(Integer, default=0)
 
     # Relationships
@@ -55,7 +55,7 @@ class UserInvite(Base):
     email = Column(String(255), nullable=False, index=True)
     username = Column(String(50), nullable=False)
     role = Column(String(20), default='user', nullable=False)
-    storage_quota_mb = Column(Integer, default=500)
+    storage_quota_mb = Column(Integer, default=5000)
     token_hash = Column(String(64), nullable=False, unique=True, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
     used_at = Column(DateTime(timezone=True))
@@ -431,3 +431,18 @@ class SSLConfiguration(Base):
         if self.alternate_domains:
             domains.extend([d for d in self.alternate_domains if d])
         return domains
+
+
+class SMTPConfiguration(Base):
+    __tablename__ = 'smtp_configurations'
+
+    id = Column(Integer, primary_key=True)
+    host = Column(String(255))
+    port = Column(Integer, default=587)
+    username = Column(String(255))
+    password = Column(String(255))
+    from_email = Column(String(255), default='no-reply@ngl.local')
+    use_tls = Column(Boolean, default=True, nullable=False)
+    is_enabled = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
