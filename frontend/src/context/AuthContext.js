@@ -66,6 +66,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const applySession = (accessToken, userData) => {
+    setToken(accessToken);
+    setUser(userData);
+    setLastActivity(Date.now());
+    localStorage.setItem('token', accessToken);
+    axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+  };
+
   const register = async (username, email, password) => {
     try {
       const response = await axios.post('/api/auth/register', {
@@ -180,6 +188,7 @@ export const AuthProvider = ({ children }) => {
     token,
     loading,
     login,
+    applySession,
     register,
     logout,
     changePassword,

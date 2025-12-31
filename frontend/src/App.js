@@ -6,6 +6,7 @@ import UploadPage from './pages/UploadPage';
 import AnalysisHistory from './pages/AnalysisHistory';
 import AdminDashboard from './pages/AdminDashboard';
 import ChangePassword from './pages/ChangePassword';
+import InviteAccept from './pages/InviteAccept';
 import './App.css';
 
 // Protected route component
@@ -93,6 +94,10 @@ function App() {
             <ChangePassword />
           </ProtectedRoute>
         }
+      />
+      <Route
+        path="/invite/:token"
+        element={<InviteAccept />}
       />
       {/* Catch all - redirect to login or home */}
       <Route

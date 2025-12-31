@@ -2,10 +2,11 @@
 Admin-only routes for user and parser management
 """
 from flask import Blueprint, request, jsonify
-from sqlalchemy import func, extract, case
+from sqlalchemy import func, extract, case, desc
 from database import SessionLocal
 from models import (
     User,
+    UserInvite,
     Parser,
     ParserPermission,
     LogFile,
@@ -16,13 +17,15 @@ from models import (
     AuditLog,
     Session,
 )
-from auth import admin_required, log_audit
-from datetime import datetime, timedelta
+from auth import admin_required, log_audit, hash_token
+from datetime import datetime, timedelta, timezone
 import os
 import re
+import secrets
 import time
 from storage_service import StorageFactory
 from config import Config
+from email_service import send_invite_email
 from ssl_service import (
     SSLConfigurationError,
     SSLVerificationError,
@@ -77,6 +80,30 @@ def validate_password(password):
     return True, None
 
 
+def derive_username_from_email(email):
+    """Derive a safe base username from an email local-part."""
+    local_part = email.split('@')[0].strip().lower()
+    normalized = re.sub(r'[^a-z0-9._-]+', '_', local_part)
+    normalized = re.sub(r'_+', '_', normalized).strip('._-')
+    if not normalized:
+        normalized = 'user'
+    if len(normalized) < 3:
+        normalized = f'{normalized}user'
+    return normalized[:50]
+
+
+def ensure_unique_username(base_username, db):
+    """Ensure username uniqueness against existing users."""
+    candidate = base_username[:50]
+    suffix = 0
+    while db.query(User).filter(User.username == candidate).first():
+        suffix += 1
+        suffix_str = str(suffix)
+        max_len = 50 - len(suffix_str)
+        candidate = f'{base_username[:max_len]}{suffix_str}'
+    return candidate
+
+
 def get_or_create_ssl_config(db):
     """Return the singleton SSL configuration row, creating it if necessary."""
     ssl_config = db.query(SSLConfiguration).first()
@@ -120,6 +147,220 @@ def list_users(current_user, db):
 
     except Exception as e:
         return jsonify({'error': f'Failed to list users: {str(e)}'}), 500
+
+
+@admin_bp.route('/invites', methods=['POST'])
+@admin_required
+def create_invite(current_user, db):
+    """Create a new user invite (admin only)"""
+    try:
+        data = request.get_json()
+
+        email = data.get('email', '').strip().lower()
+        role = data.get('role', 'user')
+        storage_quota_mb = data.get('storage_quota_mb', 500)
+
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+
+        if not validate_email(email):
+            return jsonify({'error': 'Invalid email format'}), 400
+
+        if role not in ['user', 'admin']:
+            return jsonify({'error': 'Invalid role. Must be "user" or "admin"'}), 400
+
+        try:
+            storage_quota_mb = int(storage_quota_mb)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Storage quota must be a number'}), 400
+
+        if storage_quota_mb < 100:
+            return jsonify({'error': 'Storage quota must be at least 100 MB'}), 400
+
+        existing_user = db.query(User).filter(User.email == email).first()
+        if existing_user:
+            username = existing_user.username
+            user_id = existing_user.id
+        else:
+            base_username = derive_username_from_email(email)
+            username = ensure_unique_username(base_username, db)
+            user_id = None
+
+        now = datetime.now(timezone.utc)
+        db.query(UserInvite).filter(
+            UserInvite.email == email,
+            UserInvite.used_at.is_(None),
+            UserInvite.expires_at > now
+        ).update({UserInvite.used_at: now})
+
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hash_token(raw_token)
+        expires_at = now + timedelta(hours=48)
+
+        invite = UserInvite(
+            email=email,
+            username=username,
+            role=role,
+            storage_quota_mb=storage_quota_mb,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            created_by=current_user.id,
+            user_id=user_id
+        )
+        db.add(invite)
+        db.commit()
+        db.refresh(invite)
+
+        invite_link = f"{request.host_url.rstrip('/')}/invite/{raw_token}"
+        email_sent, email_error = send_invite_email(
+            email,
+            invite_link,
+            inviter_username=current_user.username,
+            expires_hours=48
+        )
+
+        log_audit(db, current_user.id, 'create_invite', 'user_invite', invite.id, {
+            'email': email,
+            'username': username,
+            'role': role,
+            'storage_quota_mb': storage_quota_mb,
+            'expires_at': expires_at.isoformat(),
+            'reinvite': existing_user is not None,
+            'email_sent': email_sent,
+            'email_error': email_error
+        })
+
+        return jsonify({
+            'success': True,
+            'message': 'Invite created successfully',
+            'invite_link': invite_link,
+            'email_sent': email_sent,
+            'email_error': email_error,
+            'invite': {
+                'id': invite.id,
+                'email': invite.email,
+                'username': invite.username,
+                'role': invite.role,
+                'storage_quota_mb': invite.storage_quota_mb,
+                'expires_at': invite.expires_at.isoformat()
+            }
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': f'Failed to create invite: {str(e)}'}), 500
+
+
+@admin_bp.route('/invites', methods=['GET'])
+@admin_required
+def list_invites(current_user, db):
+    """List recent user invites (admin only)"""
+    try:
+        limit = request.args.get('limit', type=int) or 10
+        if limit < 1:
+            limit = 10
+        if limit > 50:
+            limit = 50
+
+        invites = db.query(UserInvite).order_by(desc(UserInvite.created_at)).limit(limit).all()
+
+        return jsonify({
+            'invites': [{
+                'id': invite.id,
+                'email': invite.email,
+                'username': invite.username,
+                'role': invite.role,
+                'storage_quota_mb': invite.storage_quota_mb,
+                'created_at': invite.created_at.isoformat() if invite.created_at else None,
+                'expires_at': invite.expires_at.isoformat() if invite.expires_at else None,
+                'used_at': invite.used_at.isoformat() if invite.used_at else None
+            } for invite in invites]
+        }), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to list invites: {str(e)}'}), 500
+
+
+@admin_bp.route('/invites/<int:invite_id>/reissue', methods=['POST'])
+@admin_required
+def reissue_invite(invite_id, current_user, db):
+    """Reissue an active invite with a fresh token (admin only)."""
+    try:
+        invite = db.query(UserInvite).filter(UserInvite.id == invite_id).first()
+        if not invite:
+            return jsonify({'error': 'Invite not found'}), 404
+
+        now = datetime.now(timezone.utc)
+        if invite.used_at:
+            return jsonify({'error': 'Invite has already been used'}), 400
+        if invite.expires_at < now:
+            return jsonify({'error': 'Invite has expired'}), 400
+
+        existing_user = db.query(User).filter(User.email == invite.email).first()
+        if existing_user:
+            username = existing_user.username
+            user_id = existing_user.id
+        else:
+            base_username = derive_username_from_email(invite.email)
+            username = ensure_unique_username(base_username, db)
+            user_id = None
+
+        invite.used_at = now
+
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hash_token(raw_token)
+        expires_at = now + timedelta(hours=48)
+
+        new_invite = UserInvite(
+            email=invite.email,
+            username=username,
+            role=invite.role,
+            storage_quota_mb=invite.storage_quota_mb,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            created_by=current_user.id,
+            user_id=user_id
+        )
+        db.add(new_invite)
+        db.commit()
+        db.refresh(new_invite)
+
+        invite_link = f"{request.host_url.rstrip('/')}/invite/{raw_token}"
+        email_sent, email_error = send_invite_email(
+            new_invite.email,
+            invite_link,
+            inviter_username=current_user.username,
+            expires_hours=48
+        )
+
+        log_audit(db, current_user.id, 'reissue_invite', 'user_invite', new_invite.id, {
+            'email': new_invite.email,
+            'username': new_invite.username,
+            'role': new_invite.role,
+            'storage_quota_mb': new_invite.storage_quota_mb,
+            'expires_at': new_invite.expires_at.isoformat(),
+            'previous_invite_id': invite.id,
+            'email_sent': email_sent,
+            'email_error': email_error
+        })
+
+        return jsonify({
+            'success': True,
+            'message': 'Invite reissued successfully',
+            'invite_link': invite_link,
+            'email_sent': email_sent,
+            'email_error': email_error,
+            'invite': {
+                'id': new_invite.id,
+                'email': new_invite.email,
+                'username': new_invite.username,
+                'role': new_invite.role,
+                'storage_quota_mb': new_invite.storage_quota_mb,
+                'expires_at': new_invite.expires_at.isoformat()
+            }
+        }), 201
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': f'Failed to reissue invite: {str(e)}'}), 500
 
 
 @admin_bp.route('/users', methods=['POST'])

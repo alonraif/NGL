@@ -3,9 +3,9 @@ Authentication routes
 """
 from flask import Blueprint, request, jsonify
 from database import SessionLocal
-from models import User, Session as UserSession
+from models import User, Session as UserSession, UserInvite
 from auth import create_access_token, token_required, log_audit, hash_token, admin_required
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import re
 from rate_limiter import limiter
 
@@ -33,12 +33,124 @@ def validate_password(password):
     return True, None
 
 
+def ensure_unique_username(base_username, db):
+    """Ensure username uniqueness against existing users."""
+    candidate = base_username[:50]
+    suffix = 0
+    while db.query(User).filter(User.username == candidate).first():
+        suffix += 1
+        suffix_str = str(suffix)
+        max_len = 50 - len(suffix_str)
+        candidate = f'{base_username[:max_len]}{suffix_str}'
+    return candidate
+
+
 @auth_bp.route('/register', methods=['POST'])
 def register():
     """Public registration disabled - only admins can create users"""
     return jsonify({
         'error': 'Public registration is disabled. Please contact an administrator to create an account.'
     }), 403
+
+
+@auth_bp.route('/invites/accept', methods=['POST'])
+@limiter.limit("10 per minute")
+def accept_invite():
+    """Accept a one-time invite and set password"""
+    db = SessionLocal()
+    try:
+        data = request.get_json()
+        raw_token = data.get('token', '').strip()
+        password = data.get('password', '')
+
+        if not raw_token or not password:
+            return jsonify({'error': 'Invite token and password are required'}), 400
+
+        valid_password, password_error = validate_password(password)
+        if not valid_password:
+            return jsonify({'error': password_error}), 400
+
+        token_hash_value = hash_token(raw_token)
+        invite = db.query(UserInvite).filter(UserInvite.token_hash == token_hash_value).first()
+
+        if not invite:
+            log_audit(db, None, 'accept_invite', 'user_invite', None, success=False, error_message='Invalid token')
+            return jsonify({'error': 'Invalid invite token'}), 400
+
+        now = datetime.now(timezone.utc)
+        if invite.used_at:
+            log_audit(db, None, 'accept_invite', 'user_invite', invite.id, success=False, error_message='Invite already used')
+            return jsonify({'error': 'Invite link has already been used'}), 400
+
+        if invite.expires_at < now:
+            log_audit(db, None, 'accept_invite', 'user_invite', invite.id, success=False, error_message='Invite expired')
+            return jsonify({'error': 'Invite link has expired'}), 400
+
+        user = None
+        if invite.user_id:
+            user = db.query(User).filter(User.id == invite.user_id).first()
+        if not user:
+            user = db.query(User).filter(User.email == invite.email).first()
+
+        if user:
+            user.role = invite.role
+            user.storage_quota_mb = invite.storage_quota_mb
+            user.is_active = True
+            user.set_password(password)
+        else:
+            username = invite.username
+            if db.query(User).filter(User.username == username).first():
+                username = ensure_unique_username(username, db)
+            user = User(
+                username=username,
+                email=invite.email,
+                role=invite.role,
+                storage_quota_mb=invite.storage_quota_mb
+            )
+            user.set_password(password)
+            db.add(user)
+            db.flush()
+
+        invite.used_at = now
+        user.last_login = now
+
+        access_token = create_access_token(user.id, user.username, user.role)
+        session = UserSession(
+            user_id=user.id,
+            token_hash=hash_token(access_token),
+            expires_at=now + timedelta(hours=24),
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+        db.add(session)
+        db.commit()
+
+        log_audit(db, user.id, 'accept_invite', 'user_invite', invite.id, {
+            'email': invite.email,
+            'username': user.username
+        })
+        log_audit(db, user.id, 'login', 'user', user.id)
+
+        return jsonify({
+            'success': True,
+            'access_token': access_token,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'role': user.role,
+                'storage_quota_mb': user.storage_quota_mb,
+                'storage_used_mb': user.storage_used_mb
+            }
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        import logging
+        logging.error(f'Invite accept error: {str(e)}')
+        return jsonify({'error': 'An error occurred while accepting the invite.'}), 500
+    finally:
+        db.close()
 
 
 @auth_bp.route('/login', methods=['POST'])

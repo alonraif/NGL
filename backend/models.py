@@ -48,6 +48,22 @@ class User(Base):
         return self.role == 'admin'
 
 
+class UserInvite(Base):
+    __tablename__ = 'user_invites'
+
+    id = Column(Integer, primary_key=True)
+    email = Column(String(255), nullable=False, index=True)
+    username = Column(String(50), nullable=False)
+    role = Column(String(20), default='user', nullable=False)
+    storage_quota_mb = Column(Integer, default=500)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    used_at = Column(DateTime(timezone=True))
+    created_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class Parser(Base):
     __tablename__ = 'parsers'
 

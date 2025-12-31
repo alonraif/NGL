@@ -13,16 +13,18 @@ const AdminDashboard = () => {
   const [analyses, setAnalyses] = useState([]);
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [showInviteUser, setShowInviteUser] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [newUser, setNewUser] = useState({
-    username: '',
+  const [newInvite, setNewInvite] = useState({
     email: '',
-    password: '',
     role: 'user',
     storage_quota_mb: 500
   });
+  const [inviteResult, setInviteResult] = useState(null);
+  const [recentInvites, setRecentInvites] = useState([]);
+  const [showInviteResult, setShowInviteResult] = useState(false);
+  const [usersTab, setUsersTab] = useState('users');
 
   const theme = {
     bgCard: 'var(--bg-card)',
@@ -164,6 +166,15 @@ const AdminDashboard = () => {
       console.error('Failed to fetch users:', error);
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const fetchInvites = useCallback(async () => {
+    try {
+      const response = await axios.get('/api/admin/invites', { params: { limit: 8 } });
+      setRecentInvites(response.data.invites || []);
+    } catch (error) {
+      console.error('Failed to fetch invites:', error);
     }
   }, []);
 
@@ -589,23 +600,55 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleCreateUser = async (e) => {
+  const handleCreateInvite = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('/api/admin/users', newUser);
-      alert('User created successfully');
-      setShowCreateUser(false);
-      setNewUser({
-        username: '',
-        email: '',
-        password: '',
-        role: 'user',
-        storage_quota_mb: 500
-      });
+      const response = await axios.post('/api/admin/invites', newInvite);
+      setInviteResult(response.data);
+      setShowInviteResult(true);
+      setNewInvite(prev => ({
+        ...prev,
+        email: ''
+      }));
       fetchUsers();
+      fetchInvites();
     } catch (error) {
-      console.error('Failed to create user:', error);
-      alert(error.response?.data?.error || 'Failed to create user');
+      console.error('Failed to create invite:', error);
+      alert(error.response?.data?.error || 'Failed to create invite');
+    }
+  };
+
+  const copyInviteLink = async () => {
+    if (!inviteResult?.invite_link) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(inviteResult.invite_link);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = inviteResult.invite_link;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      alert('Invite link copied');
+    } catch (error) {
+      console.error('Failed to copy invite link:', error);
+      alert('Failed to copy invite link');
+    }
+  };
+
+  const handleReissueInvite = async (inviteId) => {
+    try {
+      const response = await axios.post(`/api/admin/invites/${inviteId}/reissue`);
+      setInviteResult(response.data);
+      setShowInviteResult(true);
+      fetchInvites();
+    } catch (error) {
+      console.error('Failed to reissue invite:', error);
+      alert(error.response?.data?.error || 'Failed to reissue invite');
     }
   };
 
@@ -652,14 +695,18 @@ const AdminDashboard = () => {
   useEffect(() => {
     fetchStats();
     fetchUsers();
+    fetchInvites();
     fetchParsers();
     fetchAnalyses();
     fetchS3Config();
     fetchS3Stats();
     fetchSslConfig();
-  }, [fetchStats, fetchUsers, fetchParsers, fetchAnalyses, fetchS3Config, fetchS3Stats, fetchSslConfig]);
+  }, [fetchStats, fetchUsers, fetchInvites, fetchParsers, fetchAnalyses, fetchS3Config, fetchS3Stats, fetchSslConfig]);
 
   useEffect(() => {
+    if (activeTab === 'users') {
+      fetchInvites();
+    }
     if (activeTab === 'analyses') {
       fetchAnalyses();
     }
@@ -670,7 +717,7 @@ const AdminDashboard = () => {
     if (activeTab === 'reports') {
       fetchReports();
     }
-  }, [activeTab, fetchAnalyses, fetchAuditLogs, fetchAuditStats, fetchReports]);
+  }, [activeTab, fetchInvites, fetchAnalyses, fetchAuditLogs, fetchAuditStats, fetchReports]);
 
   useEffect(() => {
     if (activeTab === 'audit') {
@@ -967,54 +1014,60 @@ const AdminDashboard = () => {
             <div className="admin-content">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <h2>User Management</h2>
+              </div>
+              <div className="admin-tabs" style={{ marginBottom: '20px' }}>
                 <button
-                  onClick={() => setShowCreateUser(true)}
-                  className="btn btn-primary"
+                  type="button"
+                  className={`admin-tab ${usersTab === 'users' ? 'active' : ''}`}
+                  onClick={() => {
+                    setUsersTab('users');
+                    setShowInviteUser(false);
+                    setShowInviteResult(false);
+                  }}
                 >
-                  + Create User
+                  Users
+                </button>
+                <button
+                  type="button"
+                  className={`admin-tab ${usersTab === 'invites' ? 'active' : ''}`}
+                  onClick={() => setUsersTab('invites')}
+                >
+                  Invites
                 </button>
               </div>
 
-              {showCreateUser && (
+              {usersTab === 'invites' && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+                    <button
+                      onClick={() => {
+                        setInviteResult(null);
+                        setShowInviteUser(true);
+                      }}
+                      className="btn btn-primary"
+                    >
+                      + Invite User
+                    </button>
+                  </div>
+                  {showInviteUser && (
                 <div className="card" style={{ marginBottom: '20px', background: theme.bgTertiary }}>
-                  <h3>Create New User</h3>
-                  <form onSubmit={handleCreateUser}>
+                  <h3>Invite New User</h3>
+                  <form onSubmit={handleCreateInvite}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                      <div className="form-group">
-                        <label>Username *</label>
-                        <input
-                          type="text"
-                          value={newUser.username}
-                          onChange={(e) => setNewUser({...newUser, username: e.target.value})}
-                          required
-                          minLength={3}
-                        />
-                      </div>
                       <div className="form-group">
                         <label>Email *</label>
                         <input
                           type="email"
-                          value={newUser.email}
-                          onChange={(e) => setNewUser({...newUser, email: e.target.value})}
+                          value={newInvite.email}
+                          onChange={(e) => setNewInvite({...newInvite, email: e.target.value})}
                           required
                         />
-                      </div>
-                      <div className="form-group">
-                        <label>Password *</label>
-                        <input
-                          type="password"
-                          value={newUser.password}
-                          onChange={(e) => setNewUser({...newUser, password: e.target.value})}
-                          required
-                          minLength={12}
-                        />
-                        <small>Min 12 characters, 1 uppercase, 1 lowercase, 1 number</small>
                       </div>
                       <div className="form-group">
                         <label>Role</label>
                         <select
-                          value={newUser.role}
-                          onChange={(e) => setNewUser({...newUser, role: e.target.value})}
+                          value={newInvite.role}
+                          onChange={(e) => setNewInvite({...newInvite, role: e.target.value})}
                         >
                           <option value="user">User</option>
                           <option value="admin">Admin</option>
@@ -1024,18 +1077,24 @@ const AdminDashboard = () => {
                         <label>Storage Quota (MB)</label>
                         <input
                           type="number"
-                          value={newUser.storage_quota_mb}
-                          onChange={(e) => setNewUser({...newUser, storage_quota_mb: parseInt(e.target.value)})}
+                          value={newInvite.storage_quota_mb}
+                          onChange={(e) => setNewInvite({...newInvite, storage_quota_mb: parseInt(e.target.value)})}
                           min={100}
                           max={10000}
                         />
                       </div>
                     </div>
+                    <div style={{ marginTop: '8px', fontSize: '12px', color: theme.textSecondary }}>
+                      The invite link is valid for 48 hours and can be shared manually.
+                    </div>
                     <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
-                      <button type="submit" className="btn btn-primary">Create User</button>
+                      <button type="submit" className="btn btn-primary">Create Invite</button>
                       <button
                         type="button"
-                        onClick={() => setShowCreateUser(false)}
+                        onClick={() => {
+                          setShowInviteUser(false);
+                          setInviteResult(null);
+                        }}
                         className="btn btn-secondary"
                       >
                         Cancel
@@ -1045,7 +1104,147 @@ const AdminDashboard = () => {
                 </div>
               )}
 
-              {showResetPassword && selectedUser && (
+                  {showInviteResult && inviteResult?.invite && (
+                <div
+                  style={{
+                    position: 'fixed',
+                    inset: 0,
+                    background: 'rgba(0, 0, 0, 0.45)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000
+                  }}
+                  onClick={() => setShowInviteResult(false)}
+                >
+                  <div
+                    className="card"
+                    style={{
+                      width: 'min(520px, 92vw)',
+                      background: theme.bgCard,
+                      border: `1px solid ${theme.border}`,
+                      boxShadow: `0 12px 30px ${theme.shadow}`,
+                      padding: '22px'
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3 style={{ margin: 0 }}>Invite Ready</h3>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => setShowInviteResult(false)}
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <div style={{ marginTop: '12px', color: theme.textSecondary }}>
+                      Share this link with the user to finish setup.
+                    </div>
+                    <div style={{ marginTop: '16px', display: 'grid', gap: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: theme.textSecondary }}>Email</span>
+                        <span>{inviteResult.invite.email}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: theme.textSecondary }}>Username</span>
+                        <span>{inviteResult.invite.username}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: theme.textSecondary }}>Role</span>
+                        <span>{inviteResult.invite.role}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: theme.textSecondary }}>Quota</span>
+                        <span>{inviteResult.invite.storage_quota_mb} MB</span>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: '16px' }}>
+                      <div style={{ fontSize: '13px', color: theme.textSecondary, marginBottom: '6px' }}>
+                        Invite link
+                      </div>
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          readOnly
+                          value={inviteResult.invite_link}
+                          onFocus={(e) => e.target.select()}
+                          style={{ flex: 1 }}
+                        />
+                        <button type="button" className="btn btn-primary" onClick={copyInviteLink}>
+                          Copy Link
+                        </button>
+                      </div>
+                      <div style={{ marginTop: '6px', fontSize: '12px', color: theme.textSecondary }}>
+                        {inviteResult.email_sent ? 'Email sent.' : 'Email delivery is disabled.'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+                  <div className="card" style={{ marginBottom: '20px', background: theme.bgSecondary }}>
+                <h3>Recent Invites</h3>
+                <div style={{ marginBottom: '8px', fontSize: '12px', color: theme.textSecondary }}>
+                  Regenerate a link for active invites if needed.
+                </div>
+                {recentInvites.length === 0 ? (
+                  <div style={{ color: theme.textSecondary }}>No recent invites.</div>
+                ) : (
+                  <table className="analysis-table">
+                    <thead>
+                      <tr>
+                        <th>Email</th>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Expires</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentInvites.map(invite => {
+                        const now = new Date();
+                        const expiresAt = invite.expires_at ? new Date(invite.expires_at) : null;
+                        const status = invite.used_at
+                          ? 'Used'
+                          : (expiresAt && expiresAt < now ? 'Expired' : 'Active');
+                        const statusClass = invite.used_at
+                          ? 'status-info'
+                          : (expiresAt && expiresAt < now ? 'status-error' : 'status-success');
+                        const isActive = !invite.used_at && (!expiresAt || expiresAt >= now);
+                        return (
+                          <tr key={invite.id}>
+                            <td>{invite.email}</td>
+                            <td>{invite.username}</td>
+                            <td>{invite.role}</td>
+                            <td><span className={statusClass}>{status}</span></td>
+                            <td>{formatDateTime(invite.expires_at)}</td>
+                            <td>
+                              <button
+                                type="button"
+                                className="btn btn-small"
+                                disabled={!isActive}
+                                onClick={() => {
+                                  if (isActive) {
+                                    handleReissueInvite(invite.id);
+                                  }
+                                }}
+                              >
+                                Regenerate Link
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+                </>
+              )}
+
+              {usersTab === 'users' && showResetPassword && selectedUser && (
                 <div className="card" style={{ marginBottom: '20px', background: theme.warningBg, border: `1px solid ${theme.warning}` }}>
                   <h3>Reset Password for {selectedUser.username}</h3>
                   <form onSubmit={handleResetPassword}>
@@ -1076,75 +1275,77 @@ const AdminDashboard = () => {
                 </div>
               )}
 
-              <table className="analysis-table">
-                <thead>
-                  <tr>
-                    <th>Username</th>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Storage</th>
-                    <th>Last Login</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map(u => (
-                    <tr key={u.id}>
-                      <td>{u.username}</td>
-                      <td>{u.email}</td>
-                      <td>
-                        <span className={u.role === 'admin' ? 'admin-badge' : 'status-info'}>
-                          {u.role}
-                        </span>
-                      </td>
-                      <td>{u.storage_used_mb} / {u.storage_quota_mb} MB</td>
-                      <td>{formatDateTime(u.last_login)}</td>
-                      <td>
-                        <span className={`status-badge ${u.is_active ? 'status-success' : 'status-error'}`}>
-                          {u.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="action-buttons">
-                          <button
-                            onClick={() => toggleUserStatus(u.id, u.is_active)}
-                            className="btn btn-small"
-                          >
-                            {u.is_active ? 'Deactivate' : 'Activate'}
-                          </button>
-                          {u.role !== 'admin' && (
-                            <button
-                              onClick={() => makeAdmin(u.id)}
-                              className="btn btn-small"
-                            >
-                              Make Admin
-                            </button>
-                          )}
-                          <button
-                            onClick={() => {
-                              setSelectedUser(u);
-                              setShowResetPassword(true);
-                            }}
-                            className="btn btn-small"
-                          >
-                            Reset Password
-                          </button>
-                          {u.id !== user.id && (
-                            <button
-                              onClick={() => handleDeleteUser(u.id, u.username)}
-                              className="btn btn-small"
-                              style={{ background: theme.error, color: 'white' }}
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </td>
+              {usersTab === 'users' && (
+                <table className="analysis-table">
+                  <thead>
+                    <tr>
+                      <th>Username</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Storage</th>
+                      <th>Last Login</th>
+                      <th>Status</th>
+                      <th>Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {users.map(u => (
+                      <tr key={u.id}>
+                        <td>{u.username}</td>
+                        <td>{u.email}</td>
+                        <td>
+                          <span className={u.role === 'admin' ? 'admin-badge' : 'status-info'}>
+                            {u.role}
+                          </span>
+                        </td>
+                        <td>{u.storage_used_mb} / {u.storage_quota_mb} MB</td>
+                        <td>{formatDateTime(u.last_login)}</td>
+                        <td>
+                          <span className={`status-badge ${u.is_active ? 'status-success' : 'status-error'}`}>
+                            {u.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="action-buttons">
+                            <button
+                              onClick={() => toggleUserStatus(u.id, u.is_active)}
+                              className="btn btn-small"
+                            >
+                              {u.is_active ? 'Deactivate' : 'Activate'}
+                            </button>
+                            {u.role !== 'admin' && (
+                              <button
+                                onClick={() => makeAdmin(u.id)}
+                                className="btn btn-small"
+                              >
+                                Make Admin
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                setSelectedUser(u);
+                                setShowResetPassword(true);
+                              }}
+                              className="btn btn-small"
+                            >
+                              Reset Password
+                            </button>
+                            {u.id !== user.id && (
+                              <button
+                                onClick={() => handleDeleteUser(u.id, u.username)}
+                                className="btn btn-small"
+                                style={{ background: theme.error, color: 'white' }}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           )}
 

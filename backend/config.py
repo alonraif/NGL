@@ -60,5 +60,13 @@ class Config:
     SSL_ENCRYPTION_KEY = os.getenv('SSL_ENCRYPTION_KEY')
     SSL_ALLOW_OPTIONAL_HTTPS = os.getenv('SSL_ALLOW_OPTIONAL_HTTPS', 'true').lower() == 'true'
 
+    # SMTP (optional - for invite emails)
+    SMTP_HOST = os.getenv('SMTP_HOST')
+    SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
+    SMTP_USER = os.getenv('SMTP_USER')
+    SMTP_PASS = os.getenv('SMTP_PASS')
+    SMTP_FROM = os.getenv('SMTP_FROM', 'no-reply@ngl.local')
+    SMTP_USE_TLS = os.getenv('SMTP_USE_TLS', 'true').lower() == 'true'
+
     # Rate limiting
     RATE_LIMIT_DEFAULT = os.getenv('RATE_LIMIT_DEFAULT', '240 per minute').strip()
