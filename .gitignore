@@ -58,3 +58,4 @@ celerybeat.pid
 
 # Test files
 test_logs/
+.devcontainer/devcontainer.json
